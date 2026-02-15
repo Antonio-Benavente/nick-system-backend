@@ -61,7 +61,7 @@ if (process.env.NODE_ENV === "development") {
 // =====================================================
 const apiRouter = express.Router();
 
-// Montar todas las rutas bajo /api
+// Montar todas las rutas bajo /
 apiRouter.use("/auth", authRoutes);
 apiRouter.use("/admin", adminRoutes);
 apiRouter.use("/tecnicos", tecnicosRoutes);
@@ -70,29 +70,19 @@ apiRouter.use("/categorias", categoriasRoutes);
 apiRouter.use("/evidencias", evidenciasRoutes);
 apiRouter.use("/notificaciones", notificacionesRoutes);
 
-// Health check bajo /api
+// Health check bajo /
 apiRouter.get("/health", (req, res) => {
   res.json({
     status: "ok",
-    message: "Backend funcionando ðŸš€",
+    message: "Backend funcionando 🚀",
     environment: process.env.NODE_ENV || "development",
     timestamp: new Date().toISOString(),
   });
 });
 
-// Montar el router bajo /api
-app.use("/api", apiRouter);
+// Montar el router bajo /
+app.use("/", apiRouter);
 
-// =====================================================
-// RUTA RAÃZ (opcional - para verificar)
-// =====================================================
-app.get("/", (req, res) => {
-  res.json({
-    message: "Nick System API",
-    version: "1.0.0",
-    endpoints: "/api",
-  });
-});
 
 // =====================================================
 // RUTA NO ENCONTRADA (404)
