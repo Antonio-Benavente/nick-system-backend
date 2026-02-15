@@ -3,7 +3,7 @@ import nodemailer from 'nodemailer';
 class EmailService {
   constructor() {
     if (!process.env.RESEND_API_KEY) {
-      console.warn('âš ï¸ RESEND_API_KEY no configurada. El servicio de email no funcionarÃ¡.');
+      console.warn('⚠️ RESEND_API_KEY no configurada. El servicio de email no funcionará.');
     }
     
     // Configurar transporte SMTP de Resend
@@ -32,25 +32,25 @@ class EmailService {
         throw new Error('Datos del reporte no proporcionados');
       }
 
-      console.log('ðŸ“¤ Enviando email a:', clienteEmail);
+      console.log('📧 Enviando email a:', clienteEmail);
 
       const html = this.generarHTMLCorreo(reporte, clienteNombre, clienteEmpresa);
 
       const info = await this.transporter.sendMail({
         from: process.env.EMAIL_FROM || 'Nick System <pruebas@nicksystem.com>',
         to: clienteEmail,
-        subject: `ðŸ“‹ Reporte de Servicio - ${reporte.categoria}`,
+        subject: `📋 Reporte de Servicio - ${reporte.categoria}`,
         html
       });
 
-      console.log('âœ… Email enviado exitosamente. ID:', info.messageId);
+      console.log('✅ Email enviado exitosamente. ID:', info.messageId);
       
       return {
         success: true,
         messageId: info.messageId
       };
     } catch (error) {
-      console.error('âŒ Error enviando email:', error);
+      console.error('❌ Error enviando email:', error);
       return {
         success: false,
         error: error.message || 'Error desconocido'
@@ -66,7 +66,7 @@ class EmailService {
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Reporte de Servicio TÃ©cnico</title>
+        <title>Reporte de Servicio Técnico</title>
         <style>
           body {
             font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
@@ -205,8 +205,8 @@ class EmailService {
       <body>
         <div class="container">
           <div class="header">
-            <h1>ðŸ”§ Nick System</h1>
-            <p>Sistema de GestiÃ³n de Servicios TÃ©cnicos</p>
+            <h1>Nick System</h1>
+            <p>Sistema de Gestión de Servicios Técnicos</p>
           </div>
 
           <div class="content">
@@ -215,56 +215,56 @@ class EmailService {
             </div>
 
             <div class="message">
-              Se ha completado un servicio tÃ©cnico que requiere su revisiÃ³n y conformidad. 
-              El reporte estÃ¡ disponible en nuestro portal con todas las evidencias y detalles del trabajo realizado.
+              Se ha completado un servicio técnico que requiere su revisión y conformidad. 
+              El reporte está disponible en nuestro portal con todas las evidencias y detalles del trabajo realizado.
             </div>
 
             <div class="info-card">
               <div class="info-item">
-                <div class="info-label">ðŸ“‹ CategorÃ­a:</div>
+                <div class="info-label">📋 Categoría:</div>
                 <div class="info-value">${reporte.categoria || "No especificado"}</div>
               </div>
               <div class="info-item">
-                <div class="info-label">ðŸ“… Fecha del servicio:</div>
+                <div class="info-label">📅 Fecha del servicio:</div>
                 <div class="info-value">${this.formatearFecha(reporte.fecha)}</div>
               </div>
               <div class="info-item">
-                <div class="info-label">ðŸ‘¨â€ðŸ”§ TÃ©cnico asignado:</div>
+                <div class="info-label">👨‍🔧 Técnico asignado:</div>
                 <div class="info-value">${reporte.tecnico_nombre || "No especificado"}</div>
               </div>
               <div class="info-item">
-                <div class="info-label">ðŸ“ Modalidad:</div>
-                <div class="info-value">${reporte.modalidad === "presencial" ? "Presencial ðŸ‘¤" : "Remoto ðŸ’»"}</div>
+                <div class="info-label">📱 Modalidad:</div>
+                <div class="info-value">${reporte.modalidad === "presencial" ? "Presencial 👤" : "Remoto 💻"}
               </div>
               <div class="info-item">
-                <div class="info-label">ðŸ“‹ DescripciÃ³n:</div>
+                <div class="info-label">📋 Descripción:</div>
                 <div class="info-value">${reporte.descripcion || "No especificado"}</div>
               </div>
             </div>
 
             <div class="warning">
-              <strong>âš ï¸ AcciÃ³n requerida:</strong> 
+              <strong>⚠️ Acción requerida:</strong> 
               <p>Su conformidad es necesaria para completar el proceso de servicio. 
-              Por favor ingrese al portal para revisar y confirmar en las prÃ³ximas 48 horas.</p>
+              Por favor ingrese al portal para revisar y confirmar en las próximas 48 horas.</p>
             </div>
 
             <div class="button-container">
               <a href="${portalUrl}" class="portal-button">
-                <span class="icon">ðŸ”</span> Acceder al Portal del Cliente
+                <span class="icon">🔐</span> Acceder al Portal del Cliente
               </a>
             </div>
 
             <div style="text-align: center; margin: 30px 0; color: #64748b; font-size: 14px;">
-              <p>Â¿Problemas para acceder? <a href="mailto:pruebas@nicksystem.com" style="color: #3b82f6;">Contacte a nuestro soporte</a></p>
+              <p>¿Problemas para acceder? <a href="mailto:pruebas@nicksystem.com" style="color: #3b82f6;">Contacte a nuestro soporte</a></p>
             </div>
           </div>
 
           <div class="footer">
-            <p><strong>Nick System</strong> - Sistema de GestiÃ³n de Servicios TÃ©cnicos</p>
-            <p>Lima, PerÃº | ðŸ“ž +51 932 473 318 | ðŸ“§ pruebas@nicksystem.com</p>
-            <p>Â© ${new Date().getFullYear()} Nick System. Todos los derechos reservados.</p>
+            <p><strong>Nick System</strong> - Sistema de Gestión de Servicios Técnicos</p>
+            <p>Lima, Perú | 📞 +51 932 473 318 | 📧 pruebas@nicksystem.com</p>
+            <p>© ${new Date().getFullYear()} Nick System. Todos los derechos reservados.</p>
             <p style="font-size: 12px; margin-top: 20px; color: #94a3b8;">
-              Este es un mensaje automÃ¡tico. Por favor no responda directamente a este correo.<br>
+              Este es un mensaje automático. Por favor no responda directamente a este correo.<br>
               Si necesita asistencia, contacte a nuestro equipo de soporte.
             </p>
           </div>
