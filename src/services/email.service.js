@@ -1,26 +1,19 @@
-import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 
 class EmailService {
   constructor() {
     if (!process.env.RESEND_API_KEY) {
       console.warn('⚠️ RESEND_API_KEY no configurada. El servicio de email no funcionará.');
+      this.resend = null;
+    } else {
+      this.resend = new Resend(process.env.RESEND_API_KEY);
+      console.log('✅ Resend configurado correctamente');
     }
-    
-    // Configurar transporte SMTP de Resend
-    this.transporter = nodemailer.createTransport({
-      host: 'smtp.resend.com',
-      port: 465,
-      secure: true,
-      auth: {
-        user: 'resend',
-        pass: process.env.RESEND_API_KEY
-      }
-    });
   }
 
   async enviarNotificacionReporte(reporte, clienteEmail, clienteNombre, clienteEmpresa) {
     try {
-      if (!process.env.RESEND_API_KEY) {
+      if (!this.resend) {
         throw new Error('RESEND_API_KEY no configurada en variables de entorno');
       }
 
@@ -36,18 +29,23 @@ class EmailService {
 
       const html = this.generarHTMLCorreo(reporte, clienteNombre, clienteEmpresa);
 
-      const info = await this.transporter.sendMail({
+      const { data, error } = await this.resend.emails.send({
         from: process.env.EMAIL_FROM || 'Nick System <pruebas@nicksystem.com>',
-        to: clienteEmail,
+        to: [clienteEmail],
         subject: `📋 Reporte de Servicio - ${reporte.categoria}`,
-        html
+        html: html,
       });
 
-      console.log('✅ Email enviado exitosamente. ID:', info.messageId);
+      if (error) {
+        console.error('❌ Error de Resend:', error);
+        throw new Error(error.message || 'Error al enviar email');
+      }
+
+      console.log('✅ Email enviado exitosamente. ID:', data.id);
       
       return {
         success: true,
-        messageId: info.messageId
+        messageId: data.id
       };
     } catch (error) {
       console.error('❌ Error enviando email:', error);
@@ -145,13 +143,12 @@ class EmailService {
           .portal-button {
             display: inline-block;
             background: #1e3a8a;
-            color: white;
+            color: white !important;
             padding: 16px 40px;
             font-size: 18px;
             font-weight: 600;
             text-decoration: none;
             border-radius: 8px;
-            transition: all 0.3s ease;
             text-align: center;
             margin: 20px 0;
           }
@@ -178,34 +175,18 @@ class EmailService {
             text-align: center;
             margin: 40px 0;
           }
-          .icon {
-            font-size: 24px;
-            margin-right: 10px;
-            vertical-align: middle;
-          }
           @media (max-width: 600px) {
-            .content {
-              padding: 25px 20px;
-            }
-            .info-item {
-              flex-direction: column;
-            }
-            .info-label {
-              min-width: 100%;
-              margin-bottom: 5px;
-            }
-            .portal-button {
-              display: block;
-              width: 100%;
-              padding: 18px 20px;
-            }
+            .content { padding: 25px 20px; }
+            .info-item { flex-direction: column; }
+            .info-label { min-width: 100%; margin-bottom: 5px; }
+            .portal-button { display: block; width: 100%; padding: 18px 20px; }
           }
         </style>
       </head>
       <body>
         <div class="container">
           <div class="header">
-            <h1>Nick System</h1>
+            <h1>🔧 Nick System</h1>
             <p>Sistema de Gestión de Servicios Técnicos</p>
           </div>
 
@@ -225,16 +206,16 @@ class EmailService {
                 <div class="info-value">${reporte.categoria || "No especificado"}</div>
               </div>
               <div class="info-item">
-                <div class="info-label">📅 Fecha del servicio:</div>
+                <div class="info-label">📅 Fecha:</div>
                 <div class="info-value">${this.formatearFecha(reporte.fecha)}</div>
               </div>
               <div class="info-item">
-                <div class="info-label">👨‍🔧 Técnico asignado:</div>
+                <div class="info-label">👨‍🔧 Técnico:</div>
                 <div class="info-value">${reporte.tecnico_nombre || "No especificado"}</div>
               </div>
               <div class="info-item">
                 <div class="info-label">📱 Modalidad:</div>
-                <div class="info-value">${reporte.modalidad === "presencial" ? "Presencial 👤" : "Remoto 💻"}
+                <div class="info-value">${reporte.modalidad === "presencial" ? "Presencial 👤" : "Remoto 💻"}</div>
               </div>
               <div class="info-item">
                 <div class="info-label">📋 Descripción:</div>
@@ -244,18 +225,18 @@ class EmailService {
 
             <div class="warning">
               <strong>⚠️ Acción requerida:</strong> 
-              <p>Su conformidad es necesaria para completar el proceso de servicio. 
+              <p>Su conformidad es necesaria para completar el proceso. 
               Por favor ingrese al portal para revisar y confirmar en las próximas 48 horas.</p>
             </div>
 
             <div class="button-container">
               <a href="${portalUrl}" class="portal-button">
-                <span class="icon">🔐</span> Acceder al Portal del Cliente
+                🔐 Acceder al Portal del Cliente
               </a>
             </div>
 
             <div style="text-align: center; margin: 30px 0; color: #64748b; font-size: 14px;">
-              <p>¿Problemas para acceder? <a href="mailto:pruebas@nicksystem.com" style="color: #3b82f6;">Contacte a nuestro soporte</a></p>
+              <p>¿Problemas? <a href="mailto:pruebas@nicksystem.com" style="color: #3b82f6;">Contacte a soporte</a></p>
             </div>
           </div>
 
@@ -264,8 +245,7 @@ class EmailService {
             <p>Lima, Perú | 📞 +51 932 473 318 | 📧 pruebas@nicksystem.com</p>
             <p>© ${new Date().getFullYear()} Nick System. Todos los derechos reservados.</p>
             <p style="font-size: 12px; margin-top: 20px; color: #94a3b8;">
-              Este es un mensaje automático. Por favor no responda directamente a este correo.<br>
-              Si necesita asistencia, contacte a nuestro equipo de soporte.
+              Este es un mensaje automático. No responda a este correo.
             </p>
           </div>
         </div>
