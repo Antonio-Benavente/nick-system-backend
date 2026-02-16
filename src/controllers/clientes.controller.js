@@ -99,7 +99,7 @@ export const createCliente = async (req, res) => {
     await connection.beginTransaction();
 
     let userId = null;
-    let userUUID = null; // Ã¢Å“â€¦ DECLARADO FUERA
+    let userUUID = null; // DECLARADO FUERA
 
     if (password) {
       const [existing] = await connection.query(
@@ -113,7 +113,7 @@ export const createCliente = async (req, res) => {
       }
 
       const hashedPassword = await bcrypt.hash(password, 10);
-      userUUID = uuidv4(); // Ã¢Å“â€¦ ASIGNADO
+      userUUID = uuidv4(); // ASIGNADO
 
       const [userResult] = await connection.query(
         `INSERT INTO users (uuid, name, email, password, role, empresa)
@@ -136,9 +136,9 @@ export const createCliente = async (req, res) => {
     await connection.commit();
 
     res.status(201).json({
-      message: 'Cliente creado correctamente Ã¢Å“â€¦',
+      message: 'Cliente creado correctamente',
       uuid: clienteUUID,
-      user_uuid: userUUID // Ã¢Å“â€¦ ya no rompe
+      user_uuid: userUUID
     });
 
   } catch (error) {
@@ -174,7 +174,7 @@ export const updateCliente = async (req, res) => {
 
     const userId = cliente[0].user_id;
 
-    // Si tiene usuario asociado y cambiÃƒÂ³ el email
+    // Si tiene usuario asociado y cambiar el email
     if (userId && email) {
       const [existing] = await connection.query(
         'SELECT id FROM users WHERE email = ? AND id != ?',
@@ -183,7 +183,7 @@ export const updateCliente = async (req, res) => {
 
       if (existing.length > 0) {
         await connection.rollback();
-        return res.status(409).json({ message: 'Email ya estÃƒÂ¡ en uso' });
+        return res.status(409).json({ message: 'Email ya está en uso' });
       }
 
       await connection.query(
@@ -248,7 +248,7 @@ export const restaurarCliente = async (req, res) => {
     );
 
     if (result.affectedRows === 0) {
-      return res.status(404).json({ message: 'Cliente no encontrado o ya estÃƒÂ¡ activo' });
+      return res.status(404).json({ message: 'Cliente no encontrado o ya está activo' });
     }
 
     res.json({ message: 'Cliente restaurado correctamente' });

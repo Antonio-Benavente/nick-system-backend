@@ -99,7 +99,7 @@ export const addEvidencia = async (req, res) => {
 };
 
 // =====================================================
-// AGREGAR MÃƒÅ¡LTIPLES EVIDENCIAS (BATCH)
+// AGREGAR MULTIPLES EVIDENCIAS (BATCH)
 // =====================================================
 export const addEvidenciasBatch = async (req, res) => {
   try {

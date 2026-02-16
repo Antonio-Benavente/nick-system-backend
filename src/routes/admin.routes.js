@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import {
-  // Dashboard y EstadÃƒÂ­sticas
+  // Dashboard y Estadísticas
   getDashboardStats,
   getReportesMesActual,
   getReportesPorCategoria,
@@ -9,7 +9,7 @@ import {
   getReportes,
   getReporteByUuid,
   
-  // TÃƒÂ©cnicos
+  // Técnicos
   getTecnicos,
   getTecnicoByUuid,
   createTecnico,
@@ -32,13 +32,13 @@ import roleMiddleware from '../middlewares/role.middleware.js';
 
 const router = Router();
 
-// Todas las rutas requieren autenticaciÃƒÂ³n y rol admin
+// Todas las rutas requieren autenticación y rol admin
 router.use(authMiddleware, roleMiddleware('admin'));
 
 // =====================================================
-// DASHBOARD Y ESTADÃƒÂSTICAS
+// DASHBOARD Y ESTADÍSTICAS
 // =====================================================
-// GET /admin/dashboard - EstadÃƒÂ­sticas generales
+// GET /admin/dashboard - Estadísticas generales
 router.get('/dashboard', getDashboardStats);
 
 // GET /admin/reportes/mes-actual - Reportes del mes actual
@@ -48,35 +48,35 @@ router.get('/reportes/mes-actual', getReportesMesActual);
 router.get('/reportes/por-categoria', getReportesPorCategoria);
 
 // =====================================================
-// GESTIÃƒâ€œN DE REPORTES
+// GESTIÓN DE REPORTES
 // =====================================================
 // GET /admin/reportes - Listar todos los reportes con filtros
 // Query params: incluir_eliminados, tecnico_nombre, tecnico_uuid, cliente_nombre, 
 //               cliente_uuid, categoria, modalidad, cliente_conforme, fecha_desde, fecha_hasta
 router.get('/reportes', getReportes);
 
-// GET /admin/reportes/:uuid - Ver reporte especÃƒÂ­fico
+// GET /admin/reportes/:uuid - Ver reporte especifico
 router.get('/reportes/:uuid', getReporteByUuid);
 
 // =====================================================
-// CRUD TÃƒâ€°CNICOS
+// CRUD TÉCNICOS
 // =====================================================
-// GET /admin/tecnicos - Listar tÃƒÂ©cnicos
+// GET /admin/tecnicos - Listar técnicos
 router.get('/tecnicos', getTecnicos);
 
-// GET /admin/tecnicos/:uuid - Ver tÃƒÂ©cnico especÃƒÂ­fico
+// GET /admin/tecnicos/:uuid - Ver técnico específico
 router.get('/tecnicos/:uuid', getTecnicoByUuid);
 
-// POST /admin/tecnicos - Crear nuevo tÃƒÂ©cnico (con usuario)
+// POST /admin/tecnicos - Crear nuevo técnico (con usuario)
 router.post('/tecnicos', createTecnico);
 
-// PUT /admin/tecnicos/:uuid - Actualizar tÃƒÂ©cnico
+// PUT /admin/tecnicos/:uuid - Actualizar técnico
 router.put('/tecnicos/:uuid', updateTecnico);
 
-// DELETE /admin/tecnicos/:uuid - Inactivar tÃƒÂ©cnico (soft delete)
+// DELETE /admin/tecnicos/:uuid - Inactivar técnico (soft delete)
 router.delete('/tecnicos/:uuid', deleteTecnico);
 
-// PATCH /admin/tecnicos/:uuid/restaurar - Restaurar tÃƒÂ©cnico inactivo
+// PATCH /admin/tecnicos/:uuid/restaurar - Restaurar técnico inactivo
 router.patch('/tecnicos/:uuid/restaurar', restaurarTecnico);
 
 
@@ -86,7 +86,7 @@ router.patch('/tecnicos/:uuid/restaurar', restaurarTecnico);
 // GET /admin/clientes - Listar clientes
 router.get('/clientes', getClientes);
 
-// GET /admin/clientes/:uuid - Ver cliente especÃƒÂ­fico
+// GET /admin/clientes/:uuid - Ver cliente específico
 router.get('/clientes/:uuid', getClienteByUuid);
 
 // POST /admin/clientes - Crear nuevo cliente

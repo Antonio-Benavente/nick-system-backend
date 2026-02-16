@@ -1,6 +1,6 @@
 /**
  * Validadores para entrada de datos
- * Implementa validaciÃ³n de datos antes de procesarlos
+ * Implementa validación de datos antes de procesarlos
  */
 
 export class ValidationError extends Error {
@@ -15,7 +15,7 @@ export class ValidationError extends Error {
 export const validateEmail = (email) => {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!email || !emailRegex.test(email)) {
-    throw new ValidationError("Email invÃ¡lido", "email");
+    throw new ValidationError("Email inválido", "email");
   }
   return true;
 };
@@ -23,7 +23,7 @@ export const validateEmail = (email) => {
 export const validatePassword = (password) => {
   if (!password || password.length < 6) {
     throw new ValidationError(
-      "La contraseÃ±a debe tener al menos 6 caracteres",
+      "La contraseña debe tener al menos 6 caracteres",
       "password",
     );
   }
@@ -47,7 +47,7 @@ export const validateTecnico = (data) => {
   if (data.telefono && data.telefono.length > 0) {
     const phoneRegex = /^[\d\s\-\+\(\)]+$/;
     if (!phoneRegex.test(data.telefono)) {
-      throw new ValidationError("Formato de telÃ©fono invÃ¡lido", "telefono");
+      throw new ValidationError("Formato de teléfono inválido", "telefono");
     }
   }
 
@@ -81,7 +81,7 @@ export const validateReporte = (data) => {
   }
 
   if (!data.categoria || data.categoria.trim().length === 0) {
-    throw new ValidationError("CategorÃ­a es requerida", "categoria");
+    throw new ValidationError("Categoría es requerida", "categoria");
   }
 
   if (!data.fecha) {
@@ -102,7 +102,7 @@ export const validateReporte = (data) => {
     )
   ) {
     throw new ValidationError(
-      "Estado de conformidad invÃ¡lido",
+      "Estado de conformidad inválido",
       "cliente_conforme",
     );
   }
@@ -111,7 +111,7 @@ export const validateReporte = (data) => {
 };
 
 export const validateConformidad = (data) => {
-  // Validar que el estado de conformidad sea vÃ¡lido
+  // Validar que el estado de conformidad sea válido
   if (
     !data.cliente_conforme ||
     !["conforme", "no_conforme", "por_confirmar"].includes(data.cliente_conforme)

@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 import { validateReporte, ValidationError } from "../validators/validators.js";
 
 // =====================================================
-// OBTENER MI PERFIL (TÃƒÂ©cnico autenticado)
+// OBTENER MI PERFIL (TÉCNICO autenticado)
 // =====================================================
 export const getMiPerfil = async (req, res) => {
   try {
@@ -33,7 +33,7 @@ export const getMiPerfil = async (req, res) => {
     if (rows.length === 0) {
       return res
         .status(404)
-        .json({ message: "Perfil de tÃƒÂ©cnico no encontrado" });
+        .json({ message: "Perfil de técnico no encontrado" });
     }
 
     res.json(rows[0]);
@@ -44,26 +44,26 @@ export const getMiPerfil = async (req, res) => {
 };
 
 // =====================================================
-// OBTENER MIS REPORTES (TÃƒÂ©cnico autenticado)
+// OBTENER MIS REPORTES (TÉCNICO autenticado)
 // =====================================================
 export const getMisReportes = async (req, res) => {
   try {
     const userId = req.user.id;
     const { incluir_eliminados } = req.query;
 
-    // Primero obtener el ID del tÃƒÂ©cnico
+    // Primero obtener el ID del técnico
     const [tecnico] = await pool.query(
       "SELECT id FROM tecnicos WHERE user_id = ?",
       [userId],
     );
 
     if (tecnico.length === 0) {
-      return res.status(404).json({ message: "TÃƒÂ©cnico no encontrado" });
+      return res.status(404).json({ message: "Técnico no encontrado" });
     }
 
     const tecnicoId = tecnico[0].id;
 
-    // Obtener reportes del tÃƒÂ©cnico
+    // Obtener reportes del técnico
     let query = `
       SELECT
         r.id,
@@ -94,7 +94,7 @@ export const getMisReportes = async (req, res) => {
 
     const [reportes] = await pool.query(query, params);
 
-    // Ã¢Å“â€¦ NUEVO: Obtener evidencias para cada reporte
+    // NUEVO: Obtener evidencias para cada reporte
     for (const reporte of reportes) {
       const [evidencias] = await pool.query(
         `SELECT uuid, url, tipo, descripcion, orden, created_at
@@ -115,25 +115,25 @@ export const getMisReportes = async (req, res) => {
 };
 
 // =====================================================
-// OBTENER MIS ESTADÃƒÂSTICAS (TÃƒÂ©cnico autenticado)
+// OBTENER MIS ESTADÍSTICAS (TÉCNICO autenticado)
 // =====================================================
 export const getMisEstadisticas = async (req, res) => {
   try {
     const userId = req.user.id;
 
-    // Obtener el ID del tÃƒÂ©cnico
+    // Obtener el ID del técnico
     const [tecnico] = await pool.query(
       "SELECT id FROM tecnicos WHERE user_id = ?",
       [userId],
     );
 
     if (tecnico.length === 0) {
-      return res.status(404).json({ message: "TÃƒÂ©cnico no encontrado" });
+      return res.status(404).json({ message: "Técnico no encontrado" });
     }
 
     const tecnicoId = tecnico[0].id;
 
-    // Contar reportes (solo activos para estadÃƒÂ­sticas)
+    // Contar reportes (solo activos para estadísticas)
     const [stats] = await pool.query(
       `
       SELECT
@@ -149,7 +149,7 @@ export const getMisEstadisticas = async (req, res) => {
       [tecnicoId],
     );
 
-    // Reportes por mes (ÃƒÂºltimos 6 meses, solo activos)
+    // Reportes por mes (últimos 6 meses, solo activos)
     const [reportesPorMes] = await pool.query(
       `
       SELECT
@@ -171,12 +171,12 @@ export const getMisEstadisticas = async (req, res) => {
     });
   } catch (error) {
     console.error("Error en getMisEstadisticas:", error);
-    res.status(500).json({ message: "Error al obtener estadÃƒÂ­sticas" });
+    res.status(500).json({ message: "Error al obtener estadísticas" });
   }
 };
 
 // =====================================================
-// CREAR REPORTE CON EVIDENCIAS (TÃƒÂ©cnico autenticado)
+// CREAR REPORTE CON EVIDENCIAS (TÉCNICO autenticado)
 // =====================================================
 export const createReporte = async (req, res) => {
   const connection = await pool.getConnection();
@@ -193,12 +193,12 @@ export const createReporte = async (req, res) => {
       descripcion,
       fecha,
       modalidad,
-      evidencias // Ã¢Å“â€¦ NUEVO: Array de { url, tipo, descripcion }
+      evidencias // NUEVO: Array de { url, tipo, descripcion }
     } = req.body;
 
     await connection.beginTransaction();
 
-    // Obtener ID del tÃƒÂ©cnico
+    // Obtener ID del técnico
     const [tecnico] = await connection.query(
       'SELECT id, uuid FROM tecnicos WHERE user_id = ?',
       [userId]
@@ -206,7 +206,7 @@ export const createReporte = async (req, res) => {
 
     if (tecnico.length === 0) {
       await connection.rollback();
-      return res.status(404).json({ message: 'TÃƒÂ©cnico no encontrado' });
+      return res.status(404).json({ message: 'Técnico no encontrado' });
     }
 
     // Obtener ID del cliente
@@ -246,7 +246,7 @@ export const createReporte = async (req, res) => {
 
     const reporteId = reporteResult.insertId;
 
-    // Ã¢Å“â€¦ NUEVO: Insertar evidencias si se proporcionaron
+    // NUEVO: Insertar evidencias si se proporcionaron
     if (evidencias && Array.isArray(evidencias) && evidencias.length > 0) {
       for (let i = 0; i < evidencias.length; i++) {
         const evidencia = evidencias[i];
@@ -274,7 +274,7 @@ export const createReporte = async (req, res) => {
     await connection.commit();
 
     res.status(201).json({
-      message: 'Reporte creado correctamente Ã¢Å“â€¦',
+      message: 'Reporte creado correctamente',
       uuid: reporteUUID,
       evidencias_agregadas: evidencias?.length || 0
     });

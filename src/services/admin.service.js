@@ -2,11 +2,11 @@ import pool from '../config/db.js';
 
 /**
  * Servicio para operaciones administrativas
- * Implementa lÃ³gica de negocio separada del controlador
+ * Implementa lógica de negocio separada del controlador
  */
 class AdminService {
   /**
-   * Obtiene estadÃ­sticas generales del dashboard
+   * Obtiene estadísticas generales del dashboard
    */
   async getDashboardStats() {
     const [stats] = await pool.query(`
@@ -53,7 +53,7 @@ class AdminService {
   }
 
   /**
-   * Obtiene estadÃ­sticas de reportes por categorÃ­a
+   * Obtiene estadísticas de reportes por categoría
    */
   async getReportesPorCategoria() {
     const [categorias] = await pool.query(`
@@ -73,7 +73,7 @@ class AdminService {
   }
 
   /**
-   * Filtra reportes con mÃºltiples criterios
+   * Filtra reportes con múltiples criterios
    */
   async filtrarReportes(filtros) {
     let query = `
@@ -107,13 +107,13 @@ class AdminService {
       query += ` AND r.estado = 'activo'`;
     }
 
-    // Filtro por nombre de tÃ©cnico
+    // Filtro por nombre de técnico
     if (filtros.tecnico_nombre) {
       query += ` AND t.nombre LIKE ?`;
       params.push(`%${filtros.tecnico_nombre}%`);
     }
 
-    // Filtro por UUID de tÃ©cnico
+    // Filtro por UUID de técnico
     if (filtros.tecnico_uuid) {
       query += ` AND t.uuid = ?`;
       params.push(filtros.tecnico_uuid);
@@ -131,7 +131,7 @@ class AdminService {
       params.push(filtros.cliente_uuid);
     }
 
-    // Filtro por categorÃ­a
+    // Filtro por categoría
     if (filtros.categoria) {
       query += ` AND r.categoria = ?`;
       params.push(filtros.categoria);

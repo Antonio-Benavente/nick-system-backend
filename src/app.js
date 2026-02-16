@@ -16,7 +16,7 @@ import { errorHandler } from "./middlewares/error.middleware.js";
 const app = express();
 
 // =====================================================
-// CONFIGURACIÃ“N DE CORS
+// CONFIGURACIÓN DE CORS
 // =====================================================
 const corsOptions = {
   origin: function (origin, callback) {

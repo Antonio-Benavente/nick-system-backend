@@ -1,7 +1,7 @@
 import pool from '../config/db.js';
 
 // =====================================================
-// LISTAR CATEGORÃƒÆ’Ã‚ÂAS
+// LISTAR CATEGORÍAS
 // =====================================================
 export const getCategorias = async (req, res) => {
   try {
@@ -20,12 +20,12 @@ export const getCategorias = async (req, res) => {
     res.json(rows);
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: 'Error al obtener categorÃƒÆ’Ã‚Â­as' });
+    res.status(500).json({ message: 'Error al obtener categorías' });
   }
 };
 
 // =====================================================
-// CREAR CATEGORÃƒÆ’Ã‚ÂA
+// CREAR CATEGORÍA
 // =====================================================
 export const createCategoria = async (req, res) => {
   const { nombre } = req.body;
@@ -39,15 +39,15 @@ export const createCategoria = async (req, res) => {
       `INSERT INTO categorias (nombre, estado) VALUES (?, 'activo')`,
       [nombre]
     );
-    res.status(201).json({ message: 'CategorÃƒÆ’Ã‚Â­a creada correctamente' });
+    res.status(201).json({ message: 'Categoría creada correctamente' });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: 'Error al crear categorÃƒÆ’Ã‚Â­a' });
+    res.status(500).json({ message: 'Error al crear categoría' });
   }
 };
 
 // =====================================================
-// ACTUALIZAR CATEGORÃƒÆ’Ã‚ÂA
+// ACTUALIZAR CATEGORÍA
 // =====================================================
 export const updateCategoria = async (req, res) => {
   const { id } = req.params;
@@ -64,18 +64,18 @@ export const updateCategoria = async (req, res) => {
     );
 
     if (result.affectedRows === 0) {
-      return res.status(404).json({ message: 'CategorÃƒÆ’Ã‚Â­a no encontrada' });
+      return res.status(404).json({ message: 'Categoría no encontrada' });
     }
 
-    res.json({ message: 'CategorÃƒÆ’Ã‚Â­a actualizada correctamente' });
+    res.json({ message: 'Categoría actualizada correctamente' });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: 'Error al actualizar categorÃƒÆ’Ã‚Â­a' });
+    res.status(500).json({ message: 'Error al actualizar categoría' });
   }
 };
 
 // =====================================================
-// ELIMINAR CATEGORÃƒÆ’Ã‚ÂA (SOFT DELETE)
+// ELIMINAR CATEGORÍA (SOFT DELETE)
 // =====================================================
 export const deleteCategoria = async (req, res) => {
   const { id } = req.params;
@@ -87,18 +87,18 @@ export const deleteCategoria = async (req, res) => {
     );
 
     if (result.affectedRows === 0) {
-      return res.status(404).json({ message: 'CategorÃƒÆ’Ã‚Â­a no encontrada' });
+      return res.status(404).json({ message: 'Categoría no encontrada' });
     }
 
-    res.json({ message: 'CategorÃƒÆ’Ã‚Â­a eliminada correctamente' });
+    res.json({ message: 'Categoría eliminada correctamente' });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: 'Error al eliminar categorÃƒÆ’Ã‚Â­a' });
+    res.status(500).json({ message: 'Error al eliminar categoría' });
   }
 };
 
 // =====================================================
-// RESTAURAR CATEGORÃƒÆ’Ã‚ÂA
+// RESTAURAR CATEGORÍA
 // =====================================================
 export const restaurarCategoria = async (req, res) => {
   const { id } = req.params;
@@ -110,12 +110,12 @@ export const restaurarCategoria = async (req, res) => {
     );
 
     if (result.affectedRows === 0) {
-      return res.status(404).json({ message: 'CategorÃƒÆ’Ã‚Â­a no encontrada o ya estÃƒÆ’Ã‚Â¡ activa' });
+      return res.status(404).json({ message: 'Categoría no encontrada o ya está activa' });
     }
 
-    res.json({ message: 'CategorÃƒÆ’Ã‚Â­a restaurada correctamente' });
+    res.json({ message: 'Categoría restaurada correctamente' });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: 'Error al restaurar categorÃƒÆ’Ã‚Â­a' });
+    res.status(500).json({ message: 'Error al restaurar categoría' });
   }
 };

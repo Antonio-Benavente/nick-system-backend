@@ -3,17 +3,17 @@ import emailService from '../services/email.service.js';
 
 /**
  * Controlador de Notificaciones
- * Maneja el envÃ­o de emails a clientes
+ * Maneja el envío de emails a clientes
  */
 
 // =====================================================
-// ENVIAR NOTIFICACIÃ“N DE REPORTE AL CLIENTE
+// ENVIAR NOTIFICACIÓN DE REPORTE AL CLIENTE
 // =====================================================
 export const enviarNotificacionReporte = async (req, res) => {
   try {
     const { uuid } = req.params;
 
-    console.log('ðŸ“§ Iniciando envÃ­o de notificaciÃ³n para reporte:', uuid);
+    console.log('Iniciando envío de notificación para reporte:', uuid);
 
     if (!uuid) {
       return res.status(400).json({
@@ -68,7 +68,7 @@ export const enviarNotificacionReporte = async (req, res) => {
       });
     }
 
-    console.log('ðŸ“¤ Enviando email a:', reporte.cliente_email);
+    console.log('📧 Enviando email a:', reporte.cliente_email);
 
     // 4. Enviar email
     const emailResult = await emailService.enviarNotificacionReporte(
@@ -86,28 +86,28 @@ export const enviarNotificacionReporte = async (req, res) => {
       });
     }
 
-    console.log('âœ… NotificaciÃ³n enviada exitosamente');
+    console.log('✅ Notificación enviada exitosamente');
 
     return res.status(200).json({
       success: true,
-      message: 'NotificaciÃ³n enviada exitosamente',
+      message: 'Notificación enviada exitosamente',
       email_enviado_a: reporte.cliente_email,
       reporte_uuid: uuid,
       message_id: emailResult.messageId,
     });
 
   } catch (error) {
-    console.error('âŒ Error enviando notificaciÃ³n:', error);
+    console.error('❌ Error enviando notificación:', error);
     return res.status(500).json({
       success: false,
-      message: 'Error al enviar la notificaciÃ³n',
+      message: 'Error al enviar la notificación',
       error: error.message,
     });
   }
 };
 
 // =====================================================
-// VERIFICAR CONFIGURACIÃ“N DE EMAIL
+// VERIFICAR CONFIGURACIÓN DE EMAIL
 // =====================================================
 export const verificarConfiguracion = async (req, res) => {
   try {
@@ -117,95 +117,28 @@ export const verificarConfiguracion = async (req, res) => {
       frontend_url: process.env.FRONTEND_URL || 'No configurado',
     };
 
-    // Verificar si la API key estÃ¡ configurada
+    // Verificar si la API key está configurada
     if (!config.resend_configured) {
       return res.status(500).json({
         success: false,
-        message: 'Resend API Key no estÃ¡ configurada',
+        message: 'Resend API Key no está configurada',
         config,
       });
     }
 
     return res.json({
       success: true,
-      message: 'ConfiguraciÃ³n de email verificada',
+      message: 'Configuración de email verificada',
       config,
     });
 
   } catch (error) {
-    console.error('Error verificando configuraciÃ³n:', error);
+    console.error('Error verificando configuración:', error);
     return res.status(500).json({
       success: false,
-      message: 'Error al verificar configuraciÃ³n',
+      message: 'Error al verificar configuración',
       error: error.message,
     });
   }
 };
 
-// =====================================================
-// ENVIAR EMAIL DE PRUEBA
-// =====================================================
-export const enviarEmailPrueba = async (req, res) => {
-  try {
-    const { email } = req.body;
-
-    if (!email) {
-      return res.status(400).json({
-        success: false,
-        message: 'Email destinatario es requerido',
-      });
-    }
-
-    // Verificar configuraciÃ³n
-    if (!process.env.RESEND_API_KEY) {
-      return res.status(500).json({
-        success: false,
-        message: 'Resend API Key no estÃ¡ configurada',
-      });
-    }
-
-    console.log('ðŸ“§ Enviando email de prueba a:', email);
-
-    // Crear un reporte de prueba
-    const reportePrueba = {
-      categoria: 'Prueba de Sistema',
-      fecha: new Date().toISOString().split('T')[0],
-      modalidad: 'remoto',
-      tecnico_nombre: 'Sistema de Pruebas',
-      descripcion: 'Este es un email de prueba del sistema de notificaciones',
-    };
-
-    // Enviar email
-    const emailResult = await emailService.enviarNotificacionReporte(
-      reportePrueba,
-      email,
-      'Usuario de Prueba',
-      'Empresa de Prueba'
-    );
-
-    if (!emailResult.success) {
-      return res.status(500).json({
-        success: false,
-        message: 'Error al enviar email de prueba',
-        error: emailResult.error,
-      });
-    }
-
-    console.log('âœ… Email de prueba enviado exitosamente');
-
-    return res.json({
-      success: true,
-      message: 'Email de prueba enviado exitosamente',
-      email_enviado_a: email,
-      message_id: emailResult.messageId,
-    });
-
-  } catch (error) {
-    console.error('âŒ Error enviando email de prueba:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Error al enviar email de prueba',
-      error: error.message,
-    });
-  }
-};

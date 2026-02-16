@@ -13,19 +13,19 @@ import roleMiddleware from '../middlewares/role.middleware.js';
 
 const router = Router();
 
-// Todas las rutas requieren autenticaciÃ³n y rol tÃ©cnico
+// Todas las rutas requieren autenticación y rol técnico
 router.use(authMiddleware, roleMiddleware('tecnico'));
 
 // =====================================================
-// PERFIL DEL TÃ‰CNICO
+// PERFIL DEL TÉCNICO
 // =====================================================
-// GET /tecnicos/mi-perfil - Obtener perfil del tÃ©cnico autenticado
+// GET /tecnicos/mi-perfil - Obtener perfil del técnico autenticado
 router.get('/mi-perfil', getMiPerfil);
 
 // =====================================================
-// REPORTES DEL TÃ‰CNICO
+// REPORTES DEL TÉCNICO
 // =====================================================
-// GET /tecnicos/mis-reportes - Obtener reportes del tÃ©cnico autenticado
+// GET /tecnicos/mis-reportes - Obtener reportes del técnico autenticado
 // Query params: incluir_eliminados
 router.get('/mis-reportes', getMisReportes);
 
@@ -33,9 +33,9 @@ router.get('/mis-reportes', getMisReportes);
 router.post('/reportes', createReporte);
 
 // =====================================================
-// ESTADÃSTICAS DEL TÃ‰CNICO
+// ESTADÍSTICAS DEL TÉCNICO
 // =====================================================
-// GET /tecnicos/mis-estadisticas - Obtener estadÃ­sticas del tÃ©cnico
+// GET /tecnicos/mis-estadisticas - Obtener estadísticas del técnico
 router.get('/mis-estadisticas', getMisEstadisticas);
 
 // GET /admin/clientes - Listar clientes

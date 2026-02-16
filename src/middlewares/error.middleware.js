@@ -7,7 +7,7 @@ import { ValidationError } from '../validators/validators.js';
 export const errorHandler = (err, req, res, next) => {
   console.error('Error capturado:', err);
 
-  // Error de validaciÃ³n
+  // Error de validación
   if (err instanceof ValidationError) {
     return res.status(err.statusCode || 400).json({
       error: 'ValidationError',
@@ -47,7 +47,7 @@ export const errorHandler = (err, req, res, next) => {
     });
   }
 
-  // Error genÃ©rico del servidor
+  // Error genérico del servidor
   res.status(err.statusCode || 500).json({
     error: 'ServerError',
     message: err.message || 'Error interno del servidor',

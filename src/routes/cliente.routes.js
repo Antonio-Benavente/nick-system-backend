@@ -10,7 +10,7 @@ import roleMiddleware from '../middlewares/role.middleware.js';
 
 const router = Router();
 
-// Todas las rutas requieren autenticaciÃƒÂ³n y rol cliente
+// Todas las rutas requieren autenticación y rol cliente
 router.use(authMiddleware, roleMiddleware('cliente'));
 
 // =====================================================
@@ -26,7 +26,7 @@ router.get('/mi-perfil', getMiPerfil);
 // Query params: incluir_eliminados
 router.get('/mis-reportes', getMisReportes);
 
-// GET /clientes/reportes/:uuid - Ver reporte especÃƒÂ­fico
+// GET /clientes/reportes/:uuid - Ver reporte específico
 router.get('/reportes/:uuid', getReporteByUuid);
 
 // PATCH /clientes/reportes/:uuid/conformidad - Aprobar o rechazar reporte

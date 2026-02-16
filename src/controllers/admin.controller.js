@@ -13,7 +13,7 @@ export const getDashboardStats = async (req, res) => {
     res.json(stats);
   } catch (error) {
     console.error('Error en getDashboardStats:', error);
-    res.status(500).json({ message: 'Error al obtener estadÃƒÂ­sticas' });
+    res.status(500).json({ message: 'Error al obtener estadísticas generales' });
   }
 };
 
@@ -24,7 +24,7 @@ export const getReportesMesActual = async (req, res) => {
   try {
     const reportes = await AdminService.getReportesMesActual();
     
-    // Agregar estadÃƒÂ­sticas del mes
+    // Agregar estadísticas del mes
     const conformes = reportes.filter(r => r.cliente_conforme === 'conforme').length;
     const no_conformes = reportes.filter(r => r.cliente_conforme === 'no_conforme').length;
     const por_confirmar = reportes.filter(r => r.cliente_conforme === 'por_confirmar').length;
@@ -170,7 +170,7 @@ export const getTecnicos = async (req, res) => {
 };
 
 // =====================================================
-// OBTENER TÃƒâ€°CNICO POR UUID
+// OBTENER TÉCNICO POR UUID
 // =====================================================
 export const getTecnicoByUuid = async (req, res) => {
   try {
@@ -195,18 +195,18 @@ export const getTecnicoByUuid = async (req, res) => {
     `, [uuid]);
 
     if (rows.length === 0) {
-      return res.status(404).json({ message: 'TÃƒÂ©cnico no encontrado' });
+      return res.status(404).json({ message: 'Técnico no encontrado' });
     }
 
     res.json(rows[0]);
   } catch (error) {
     console.error('Error en getTecnicoByUuid:', error);
-    res.status(500).json({ message: 'Error al obtener tÃƒÂ©cnico' });
+    res.status(500).json({ message: 'Error al obtener técnico' });
   }
 };
 
 // =====================================================
-// CREAR TÃƒâ€°CNICO (CON USUARIO)
+// CREAR TÉCNICO (CON USUARIO)
 // =====================================================
 export const createTecnico = async (req, res) => {
   const connection = await pool.getConnection();
@@ -248,7 +248,7 @@ export const createTecnico = async (req, res) => {
 
     const userId = userResult.insertId;
 
-    // Crear tÃƒÂ©cnico
+    // Crear técnico
     const tecnicoUUID = uuidv4();
 
     await connection.query(
@@ -261,7 +261,7 @@ export const createTecnico = async (req, res) => {
     await connection.commit();
 
     res.status(201).json({
-      message: 'TÃƒÂ©cnico creado correctamente Ã¢Å“â€¦',
+      message: 'Técnico creado correctamente',
       uuid: tecnicoUUID,
       user_uuid: userUUID
     });
@@ -277,14 +277,14 @@ export const createTecnico = async (req, res) => {
     }
 
     console.error('Error en createTecnico:', error);
-    res.status(500).json({ message: 'Error al crear tÃƒÂ©cnico' });
+    res.status(500).json({ message: 'Error al crear técnico' });
   } finally {
     connection.release();
   }
 };
 
 // =====================================================
-// ACTUALIZAR TÃƒâ€°CNICO
+// ACTUALIZAR TÉCNICO
 // =====================================================
 export const updateTecnico = async (req, res) => {
   const { uuid } = req.params;
@@ -295,7 +295,7 @@ export const updateTecnico = async (req, res) => {
   try {
     await connection.beginTransaction();
 
-    // Verificar que existe el tÃƒÂ©cnico
+    // Verificar que existe el técnico
     const [tecnico] = await connection.query(
       'SELECT user_id FROM tecnicos WHERE uuid = ?',
       [uuid]
@@ -303,12 +303,12 @@ export const updateTecnico = async (req, res) => {
 
     if (tecnico.length === 0) {
       await connection.rollback();
-      return res.status(404).json({ message: 'TÃƒÂ©cnico no encontrado' });
+      return res.status(404).json({ message: 'Técnico no encontrado' });
     }
 
     const userId = tecnico[0].user_id;
 
-    // Si cambiÃƒÂ³ el email, verificar que no estÃƒÂ© en uso
+    // Si cambió el email, verificar que no esté en uso
     if (email) {
       const [existing] = await connection.query(
         'SELECT id FROM users WHERE email = ? AND id != ?',
@@ -317,7 +317,7 @@ export const updateTecnico = async (req, res) => {
 
       if (existing.length > 0) {
         await connection.rollback();
-        return res.status(409).json({ message: 'Email ya estÃƒÂ¡ en uso' });
+        return res.status(409).json({ message: 'Email ya está en uso' });
       }
 
       // Actualizar email en users
@@ -327,7 +327,7 @@ export const updateTecnico = async (req, res) => {
       );
     }
 
-    // Actualizar tÃƒÂ©cnico
+    // Actualizar técnico
     await connection.query(
       `UPDATE tecnicos 
        SET nombre = ?, email = ?, telefono = ?, especialidad = ?
@@ -337,19 +337,19 @@ export const updateTecnico = async (req, res) => {
 
     await connection.commit();
 
-    res.json({ message: 'TÃƒÂ©cnico actualizado correctamente' });
+    res.json({ message: 'Técnico actualizado correctamente' });
 
   } catch (error) {
     await connection.rollback();
     console.error('Error en updateTecnico:', error);
-    res.status(500).json({ message: 'Error al actualizar tÃƒÂ©cnico' });
+    res.status(500).json({ message: 'Error al actualizar técnico' });
   } finally {
     connection.release();
   }
 };
 
 // =====================================================
-// ELIMINAR TÃƒâ€°CNICO (SOFT DELETE)
+// ELIMINAR TÉCNICO (SOFT DELETE)
 // =====================================================
 export const deleteTecnico = async (req, res) => {
   const { uuid } = req.params;
@@ -361,18 +361,18 @@ export const deleteTecnico = async (req, res) => {
     );
 
     if (result.affectedRows === 0) {
-      return res.status(404).json({ message: 'TÃƒÂ©cnico no encontrado' });
+      return res.status(404).json({ message: 'Técnico no encontrado' });
     }
 
-    res.json({ message: 'TÃƒÂ©cnico inactivado correctamente' });
+    res.json({ message: 'Técnico inactivado correctamente' });
   } catch (error) {
     console.error('Error en deleteTecnico:', error);
-    res.status(500).json({ message: 'Error al inactivar tÃƒÂ©cnico' });
+    res.status(500).json({ message: 'Error al inactivar técnico' });
   }
 };
 
 // =====================================================
-// RESTAURAR TÃƒâ€°CNICO
+// RESTAURAR TÉCNICO
 // =====================================================
 export const restaurarTecnico = async (req, res) => {
   const { uuid } = req.params;
@@ -384,12 +384,12 @@ export const restaurarTecnico = async (req, res) => {
     );
 
     if (result.affectedRows === 0) {
-      return res.status(404).json({ message: 'TÃƒÂ©cnico no encontrado o ya estÃƒÂ¡ activo' });
+      return res.status(404).json({ message: 'Técnico no encontrado o ya está activo' });
     }
 
-    res.json({ message: 'TÃƒÂ©cnico restaurado correctamente' });
+    res.json({ message: 'Técnico restaurado correctamente' });
   } catch (error) {
     console.error('Error en restaurarTecnico:', error);
-    res.status(500).json({ message: 'Error al restaurar tÃƒÂ©cnico' });
+    res.status(500).json({ message: 'Error al restaurar técnico' });
   }
 };

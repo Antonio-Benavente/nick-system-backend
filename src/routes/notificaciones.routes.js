@@ -2,7 +2,6 @@ import { Router } from 'express';
 import {
   enviarNotificacionReporte,
   verificarConfiguracion,
-  enviarEmailPrueba
 } from '../controllers/notificaciones.controller.js';
 import authMiddleware from '../middlewares/auth.middleware.js';
 import roleMiddleware from '../middlewares/role.middleware.js';
@@ -14,8 +13,7 @@ const router = Router();
 // =====================================================
 
 // POST /notificaciones/reporte/:uuid/enviar
-// Enviar notificaciÃƒÂ³n de reporte al cliente
-// Ã¢ÂÅ’ PDF eliminado (ya no se usa)
+// Enviar notificación de reporte al cliente
 router.post(
   '/reporte/:uuid/enviar',
   authMiddleware,
@@ -29,14 +27,6 @@ router.get(
   authMiddleware,
   roleMiddleware('admin'),
   verificarConfiguracion
-);
-
-// POST /notificaciones/prueba
-router.post(
-  '/prueba',
-  authMiddleware,
-  roleMiddleware('admin'),
-  enviarEmailPrueba
 );
 
 export default router;

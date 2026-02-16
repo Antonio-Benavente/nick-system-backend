@@ -17,14 +17,14 @@ export const login = async (req, res) => {
     );
 
     if (rows.length === 0) {
-      return res.status(401).json({ message: 'Credenciales invÃ¡lidas' });
+      return res.status(401).json({ message: 'Credenciales inválidas' });
     }
 
     const user = rows[0];
 
     const isValid = await bcrypt.compare(password, user.password);
     if (!isValid) {
-      return res.status(401).json({ message: 'Credenciales invÃ¡lidas' });
+      return res.status(401).json({ message: 'Credenciales inválidas' });
     }
 
     const token = jwt.sign(

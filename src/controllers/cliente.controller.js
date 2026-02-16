@@ -53,7 +53,7 @@ export const getMisReportes = async (req, res) => {
 
     const [reportes] = await pool.query(query, params);
 
-    // Ã¢Å“â€¦ NUEVO: Obtener evidencias para cada reporte
+    // NUEVO: Obtener evidencias para cada reporte
     for (const reporte of reportes) {
       const [evidencias] = await pool.query(
         `SELECT uuid, url, tipo, descripcion, orden, created_at
@@ -74,7 +74,7 @@ export const getMisReportes = async (req, res) => {
 };
 
 // =====================================================
-// OBTENER REPORTE ESPECÃƒÂFICO (Cliente autenticado)
+// OBTENER REPORTE ESPECÍFICO (Cliente autenticado)
 // =====================================================
 export const getReporteByUuid = async (req, res) => {
   try {
@@ -112,7 +112,7 @@ export const getReporteByUuid = async (req, res) => {
 
     const reporte = rows[0];
 
-    // Ã¢Å“â€¦ NUEVO: Obtener evidencias del reporte
+    // NUEVO: Obtener evidencias del reporte
     const [evidencias] = await pool.query(
       `SELECT uuid, url, tipo, descripcion, orden, created_at
        FROM reporte_evidencias
@@ -132,7 +132,7 @@ export const getReporteByUuid = async (req, res) => {
 
 // =====================================================
 // ACTUALIZAR CONFORMIDAD DEL REPORTE (Cliente autenticado)
-// Ã¢Å“â€¦ VERSIÃƒâ€œN CORREGIDA
+// VERSIÓN CORREGIDA
 // =====================================================
 export const updateConformidad = async (req, res) => {
   try {
