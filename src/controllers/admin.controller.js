@@ -5,7 +5,7 @@ import AdminService from '../services/admin.service.js';
 import { validateTecnico, ValidationError } from '../validators/validators.js';
 
 // =====================================================
-// DASHBOARD - ESTADÃƒÂSTICAS GENERALES
+// DASHBOARD - ESTADÍSTICAS GENERALES
 // =====================================================
 export const getDashboardStats = async (req, res) => {
   try {
@@ -45,7 +45,7 @@ export const getReportesMesActual = async (req, res) => {
 };
 
 // =====================================================
-// REPORTES POR CATEGORÃƒÂA
+// REPORTES POR CATEGORÍA
 // =====================================================
 export const getReportesPorCategoria = async (req, res) => {
   try {
@@ -288,11 +288,17 @@ export const createTecnico = async (req, res) => {
 // =====================================================
 export const updateTecnico = async (req, res) => {
   const { uuid } = req.params;
-  const { nombre, email, telefono, especialidad } = req.body;
+  const { nombre, email, telefono, especialidad, password } = req.body;
 
   const connection = await pool.getConnection();
 
   try {
+    // Validar contraseña si se proporciona
+    if (password) {
+      const { validatePassword } = await import('../validators/validators.js');
+      validatePassword(password);
+    }
+
     await connection.beginTransaction();
 
     // Verificar que existe el técnico
@@ -327,6 +333,15 @@ export const updateTecnico = async (req, res) => {
       );
     }
 
+    // Si se proporciona nueva contraseña, hashearla y actualizar
+    if (password) {
+      const hashedPassword = await bcrypt.hash(password, 10);
+      await connection.query(
+        'UPDATE users SET password = ? WHERE id = ?',
+        [hashedPassword, userId]
+      );
+    }
+
     // Actualizar técnico
     await connection.query(
       `UPDATE tecnicos 
@@ -341,6 +356,14 @@ export const updateTecnico = async (req, res) => {
 
   } catch (error) {
     await connection.rollback();
+    
+    if (error instanceof ValidationError) {
+      return res.status(400).json({ 
+        message: error.message,
+        field: error.field 
+      });
+    }
+
     console.error('Error en updateTecnico:', error);
     res.status(500).json({ message: 'Error al actualizar técnico' });
   } finally {

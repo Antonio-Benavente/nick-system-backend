@@ -155,11 +155,17 @@ export const createCliente = async (req, res) => {
 // =====================================================
 export const updateCliente = async (req, res) => {
   const { uuid } = req.params;
-  const { nombre, empresa, email, telefono, direccion } = req.body;
+  const { nombre, empresa, email, telefono, direccion, password } = req.body;
 
   const connection = await pool.getConnection();
 
   try {
+    // Validar contraseña si se proporciona
+    if (password) {
+      const { validatePassword } = await import('../validators/validators.js');
+      validatePassword(password);
+    }
+
     await connection.beginTransaction();
 
     const [cliente] = await connection.query(
@@ -192,6 +198,15 @@ export const updateCliente = async (req, res) => {
       );
     }
 
+    // Si se proporciona nueva contraseña, hashearla y actualizar
+    if (userId && password) {
+      const hashedPassword = await bcrypt.hash(password, 10);
+      await connection.query(
+        'UPDATE users SET password = ? WHERE id = ?',
+        [hashedPassword, userId]
+      );
+    }
+
     await connection.query(
       `UPDATE clientes 
        SET nombre = ?, empresa = ?, email = ?, telefono = ?, direccion = ?
@@ -205,6 +220,14 @@ export const updateCliente = async (req, res) => {
 
   } catch (error) {
     await connection.rollback();
+    
+    if (error instanceof ValidationError) {
+      return res.status(400).json({ 
+        message: error.message,
+        field: error.field 
+      });
+    }
+
     console.error('Error en updateCliente:', error);
     res.status(500).json({ message: 'Error al actualizar cliente' });
   } finally {
