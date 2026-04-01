@@ -179,6 +179,33 @@ Query Params (opcionales):
 - fecha_hasta
 ```
 
+#### Editar Reporte
+```http
+PUT /admin/reportes/:uuid
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "categoria": "Mantenimiento Correctivo",
+  "descripcion": "Descripción actualizada del reporte",
+  "fecha": "2024-03-31",
+  "modalidad": "remoto",
+  "estado": "activo"
+}
+
+Campos opcionales (al menos uno requerido):
+- categoria: string (debe existir y estar activa)
+- descripcion: string
+- fecha: string (formato YYYY-MM-DD)
+- modalidad: "presencial" | "remoto"
+- estado: "activo" | "inactivo" | "eliminado"
+
+Response:
+{
+  "message": "Reporte actualizado correctamente"
+}
+```
+
 #### Listar Técnicos
 ```http
 GET /admin/tecnicos

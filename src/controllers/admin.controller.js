@@ -2,7 +2,7 @@ import pool from '../config/db.js';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import AdminService from '../services/admin.service.js';
-import { validateTecnico, ValidationError } from '../validators/validators.js';
+import { validateTecnico, ValidationError, validateReporte } from '../validators/validators.js';
 
 // =====================================================
 // DASHBOARD - ESTADÍSTICAS GENERALES
@@ -133,7 +133,102 @@ export const getReporteByUuid = async (req, res) => {
 };
 
 // =====================================================
-// LISTAR TÃƒâ€°CNICOS
+// ACTUALIZAR REPORTE
+// =====================================================
+export const updateReporte = async (req, res) => {
+  const { uuid } = req.params;
+  const { categoria, descripcion, fecha, modalidad, estado } = req.body;
+
+  try {
+    // Validar datos básicos
+    const dataToValidate = {};
+    if (categoria !== undefined) dataToValidate.categoria = categoria;
+    if (fecha !== undefined) dataToValidate.fecha = fecha;
+    if (modalidad !== undefined) dataToValidate.modalidad = modalidad;
+
+    if (Object.keys(dataToValidate).length > 0) {
+      // Agregar cliente_uuid dummy para validación (no se edita)
+      dataToValidate.cliente_uuid = 'dummy';
+      validateReporte(dataToValidate);
+    }
+
+    // Verificar que existe el reporte
+    const [reporte] = await pool.query(
+      'SELECT id FROM reportes WHERE uuid = ?',
+      [uuid]
+    );
+
+    if (reporte.length === 0) {
+      return res.status(404).json({ message: 'Reporte no encontrado' });
+    }
+
+    // Verificar que la categoría existe si se proporciona
+    if (categoria) {
+      const [cat] = await pool.query(
+        'SELECT id FROM categorias WHERE nombre = ? AND estado = "activo"',
+        [categoria]
+      );
+      if (cat.length === 0) {
+        return res.status(400).json({ message: 'Categoría no válida o inactiva' });
+      }
+    }
+
+    // Construir query de actualización dinámica
+    const updates = [];
+    const values = [];
+
+    if (categoria !== undefined) {
+      updates.push('categoria = ?');
+      values.push(categoria);
+    }
+    if (descripcion !== undefined) {
+      updates.push('descripcion = ?');
+      values.push(descripcion);
+    }
+    if (fecha !== undefined) {
+      updates.push('fecha = ?');
+      values.push(fecha);
+    }
+    if (modalidad !== undefined) {
+      updates.push('modalidad = ?');
+      values.push(modalidad);
+    }
+    if (estado !== undefined) {
+      updates.push('estado = ?');
+      values.push(estado);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ message: 'No se proporcionaron campos para actualizar' });
+    }
+
+    // Ejecutar actualización
+    const query = `UPDATE reportes SET ${updates.join(', ')} WHERE uuid = ?`;
+    values.push(uuid);
+
+    const [result] = await pool.query(query, values);
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: 'Reporte no encontrado' });
+    }
+
+    res.json({ message: 'Reporte actualizado correctamente' });
+
+  } catch (error) {
+    if (error instanceof ValidationError) {
+      return res.status(400).json({ 
+        message: error.message,
+        field: error.field 
+      });
+    }
+
+    console.error('Error en updateReporte:', error);
+    res.status(500).json({ message: 'Error al actualizar reporte' });
+  }
+};
+
+// =====================================================
+// LISTAR TÉCNICOS
 // =====================================================
 export const getTecnicos = async (req, res) => {
   try {

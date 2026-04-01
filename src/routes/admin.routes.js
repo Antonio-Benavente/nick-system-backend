@@ -8,6 +8,7 @@ import {
   // Reportes
   getReportes,
   getReporteByUuid,
+  updateReporte,
   
   // Técnicos
   getTecnicos,
@@ -57,6 +58,10 @@ router.get('/reportes', getReportes);
 
 // GET /admin/reportes/:uuid - Ver reporte especifico
 router.get('/reportes/:uuid', getReporteByUuid);
+
+// PUT /admin/reportes/:uuid - Actualizar reporte
+// Body: { categoria?, descripcion?, fecha?, modalidad?, estado? }
+router.put('/reportes/:uuid', updateReporte);
 
 // =====================================================
 // CRUD TÉCNICOS
