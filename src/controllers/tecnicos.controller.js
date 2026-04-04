@@ -422,7 +422,6 @@ export const updateReporte = async (req, res) => {
             ]
           );
           evidenciasActualizadas++;
-          existentesUUIDs.delete(evidencia.uuid);
         } else {
           // Crear nueva evidencia
           const evidenciaUUID = uuidv4();
@@ -440,17 +439,6 @@ export const updateReporte = async (req, res) => {
             ]
           );
           evidenciasAgregadas++;
-        }
-      }
-
-      // Eliminar evidencias que no se incluyen en la actualización
-      if (existentesUUIDs.size > 0) {
-        const uuidsAEliminar = Array.from(existentesUUIDs);
-        for (const uuid of uuidsAEliminar) {
-          await connection.query(
-            'DELETE FROM reporte_evidencias WHERE uuid = ?',
-            [uuid]
-          );
         }
       }
     }
