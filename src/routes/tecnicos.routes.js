@@ -3,7 +3,8 @@ import {
   getMiPerfil,
   getMisReportes,
   getMisEstadisticas,
-  createReporte
+  createReporte,
+  updateReporte
 } from '../controllers/tecnicos.controller.js';
 import {
   getClientes
@@ -31,6 +32,9 @@ router.get('/mis-reportes', getMisReportes);
 
 // POST /tecnicos/reportes - Crear nuevo reporte
 router.post('/reportes', createReporte);
+
+// PUT /tecnicos/reportes/:reporteUUID - Editar reporte existente
+router.put('/reportes/:reporteUUID', updateReporte);
 
 // =====================================================
 // ESTADÍSTICAS DEL TÉCNICO
