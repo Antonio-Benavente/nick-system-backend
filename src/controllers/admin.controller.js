@@ -2,7 +2,7 @@ import pool from '../config/db.js';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import AdminService from '../services/admin.service.js';
-import { validateTecnico, ValidationError, validateReporte } from '../validators/validators.js';
+import { validateTecnico, ValidationError, validateReporte, validateReporteUpdate } from '../validators/validators.js';
 
 // =====================================================
 // DASHBOARD - ESTADÍSTICAS GENERALES
@@ -145,12 +145,10 @@ export const updateReporte = async (req, res) => {
     if (categoria !== undefined) dataToValidate.categoria = categoria;
     if (fecha !== undefined) dataToValidate.fecha = fecha;
     if (modalidad !== undefined) dataToValidate.modalidad = modalidad;
+    if (estado !== undefined) dataToValidate.estado = estado;
+    if (descripcion !== undefined) dataToValidate.descripcion = descripcion;
 
-    if (Object.keys(dataToValidate).length > 0) {
-      // Agregar cliente_uuid dummy para validación (no se edita)
-      dataToValidate.cliente_uuid = 'dummy';
-      validateReporte(dataToValidate);
-    }
+    validateReporteUpdate(dataToValidate);
 
     // Verificar que existe el reporte
     const [reporte] = await pool.query(

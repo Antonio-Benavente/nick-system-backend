@@ -110,6 +110,29 @@ export const validateReporte = (data) => {
   return true;
 };
 
+export const validateReporteUpdate = (data) => {
+  if (Object.keys(data).length === 0) {
+    throw new ValidationError("Se requiere al menos un campo para actualizar", "body");
+  }
+
+  if (data.categoria !== undefined && (!data.categoria || data.categoria.trim().length === 0)) {
+    throw new ValidationError("Categoría no puede estar vacía", "categoria");
+  }
+
+  if (data.modalidad !== undefined && !["presencial", "remoto"].includes(data.modalidad)) {
+    throw new ValidationError('Modalidad debe ser "presencial" o "remoto"', "modalidad");
+  }
+
+  if (
+    data.cliente_conforme &&
+    !["conforme", "no_conforme", "por_confirmar"].includes(data.cliente_conforme)
+  ) {
+    throw new ValidationError("Estado de conformidad inválido", "cliente_conforme");
+  }
+
+  return true;
+};
+
 export const validateConformidad = (data) => {
   // Validar que el estado de conformidad sea válido
   if (

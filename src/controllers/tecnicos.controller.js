@@ -1,6 +1,6 @@
 import pool from "../config/db.js";
 import { v4 as uuidv4 } from "uuid";
-import { validateReporte, ValidationError } from "../validators/validators.js";
+import { validateReporte, validateReporteUpdate, ValidationError } from "../validators/validators.js";
 
 // =====================================================
 // OBTENER MI PERFIL (TÉCNICO autenticado)
@@ -306,10 +306,10 @@ export const updateReporte = async (req, res) => {
     const userId = req.user.id;
     const { reporteUUID } = req.params;
 
-    // Validar datos de entrada (reutilizar función de validación)
+    // Validar datos de entrada (solo campos presentes)
     const fieldsToValidate = { ...req.body };
-    if (fieldsToValidate.evidencias) delete fieldsToValidate.evidencias; // Ignorar evidencias en validación general
-    validateReporte(fieldsToValidate);
+    if (fieldsToValidate.evidencias) delete fieldsToValidate.evidencias;
+    validateReporteUpdate(fieldsToValidate);
 
     const {
       categoria,

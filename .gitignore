@@ -34,3 +34,6 @@ temp/
 # Build
 dist/
 build/
+
+# Otros
+AGENTS.md
