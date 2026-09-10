@@ -1,14 +1,7 @@
 import pool from '../config/db.js';
 import emailService from '../services/email.service.js';
+import { getEvidenciasPorReporte } from '../services/evidencias.service.js';
 
-/**
- * Controlador de Notificaciones
- * Maneja el envío de emails a clientes
- */
-
-// =====================================================
-// ENVIAR NOTIFICACIÓN DE REPORTE AL CLIENTE
-// =====================================================
 export const enviarNotificacionReporte = async (req, res) => {
   try {
     const { uuid } = req.params;
@@ -22,7 +15,6 @@ export const enviarNotificacionReporte = async (req, res) => {
       });
     }
 
-    // 1. Obtener el reporte completo
     const [reportes] = await pool.query(
       `SELECT
         r.*,
@@ -49,18 +41,8 @@ export const enviarNotificacionReporte = async (req, res) => {
 
     const reporte = reportes[0];
 
-    // 2. Obtener evidencias del reporte
-    const [evidencias] = await pool.query(
-      `SELECT uuid, url, tipo, descripcion, orden
-       FROM reporte_evidencias
-       WHERE reporte_id = ?
-       ORDER BY orden ASC`,
-      [reporte.id]
-    );
+    reporte.evidencias = await getEvidenciasPorReporte(reporte.id, { includeCreatedAt: false });
 
-    reporte.evidencias = evidencias;
-
-    // 3. Validar email del cliente
     if (!reporte.cliente_email) {
       return res.status(400).json({
         success: false,
@@ -70,7 +52,6 @@ export const enviarNotificacionReporte = async (req, res) => {
 
     console.log('📧 Enviando email a:', reporte.cliente_email);
 
-    // 4. Enviar email
     const emailResult = await emailService.enviarNotificacionReporte(
       reporte,
       reporte.cliente_email,
@@ -106,9 +87,6 @@ export const enviarNotificacionReporte = async (req, res) => {
   }
 };
 
-// =====================================================
-// VERIFICAR CONFIGURACIÓN DE EMAIL
-// =====================================================
 export const verificarConfiguracion = async (req, res) => {
   try {
     const config = {
@@ -117,7 +95,6 @@ export const verificarConfiguracion = async (req, res) => {
       frontend_url: process.env.FRONTEND_URL || 'No configurado',
     };
 
-    // Verificar si la API key está configurada
     if (!config.resend_configured) {
       return res.status(500).json({
         success: false,

@@ -1,20 +1,21 @@
 # ==========================================
 # ETAPA 1: Build
 # ==========================================
-FROM node:18-alpine AS builder
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
 # Copiar archivos de dependencias
-COPY package*.json ./
+COPY package.json pnpm-lock.yaml ./
 
-# Instalar dependencias
-RUN npm ci --only=production
+# Instalar dependencias con pnpm
+RUN corepack enable && corepack prepare pnpm@11.22.0 --activate \
+  && pnpm install --frozen-lockfile --prod
 
 # ==========================================
 # ETAPA 2: Production
 # ==========================================
-FROM node:18-alpine
+FROM node:20-alpine
 
 WORKDIR /app
 
@@ -40,7 +41,7 @@ ENV PORT=4000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:4000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
+  CMD node -e "require('http').get('http://localhost:4000/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
 # Comando de inicio
 CMD ["node", "src/server.js"]

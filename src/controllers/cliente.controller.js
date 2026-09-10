@@ -1,27 +1,19 @@
 import pool from '../config/db.js';
 import { validateConformidad, ValidationError } from '../validators/validators.js';
+import { attachEvidencias, getEvidenciasPorReporte } from '../services/evidencias.service.js';
+import { getClienteByUserId } from '../services/entidades.service.js';
 
-// =====================================================
-// OBTENER MIS REPORTES (Cliente autenticado)
-// =====================================================
 export const getMisReportes = async (req, res) => {
   try {
     const userId = req.user.id;
     const { incluir_eliminados } = req.query;
 
-    // Obtener el ID del cliente
-    const [cliente] = await pool.query(
-      'SELECT id FROM clientes WHERE user_id = ?',
-      [userId]
-    );
+    const cliente = await getClienteByUserId(userId);
 
-    if (cliente.length === 0) {
+    if (!cliente) {
       return res.status(404).json({ message: 'Cliente no encontrado' });
     }
 
-    const clienteId = cliente[0].id;
-
-    // Obtener reportes del cliente
     let query = `
       SELECT
         r.id,
@@ -43,7 +35,7 @@ export const getMisReportes = async (req, res) => {
       WHERE r.cliente_id = ?
     `;
 
-    const params = [clienteId];
+    const params = [cliente.id];
 
     if (incluir_eliminados !== 'true') {
       query += ` AND r.estado = 'activo'`;
@@ -53,47 +45,24 @@ export const getMisReportes = async (req, res) => {
 
     const [reportes] = await pool.query(query, params);
 
-    // NUEVO: Obtener evidencias para cada reporte
-    for (const reporte of reportes) {
-      const [evidencias] = await pool.query(
-        `SELECT uuid, url, tipo, descripcion, orden, created_at
-         FROM reporte_evidencias
-         WHERE reporte_id = ?
-         ORDER BY orden ASC`,
-        [reporte.id]
-      );
-      
-      reporte.evidencias = evidencias;
-    }
-
-    res.json(reportes);
+    res.json(await attachEvidencias(reportes));
   } catch (error) {
     console.error('Error en getMisReportes (cliente):', error);
     res.status(500).json({ message: 'Error al obtener reportes' });
   }
 };
 
-// =====================================================
-// OBTENER REPORTE ESPECÍFICO (Cliente autenticado)
-// =====================================================
 export const getReporteByUuid = async (req, res) => {
   try {
     const userId = req.user.id;
     const { uuid } = req.params;
 
-    // Obtener el ID del cliente
-    const [cliente] = await pool.query(
-      'SELECT id FROM clientes WHERE user_id = ?',
-      [userId]
-    );
+    const cliente = await getClienteByUserId(userId);
 
-    if (cliente.length === 0) {
+    if (!cliente) {
       return res.status(404).json({ message: 'Cliente no encontrado' });
     }
 
-    const clienteId = cliente[0].id;
-
-    // Obtener el reporte solo si pertenece al cliente
     const [rows] = await pool.query(`
       SELECT
         r.*,
@@ -104,7 +73,7 @@ export const getReporteByUuid = async (req, res) => {
       FROM reportes r
       INNER JOIN tecnicos t ON t.id = r.tecnico_id
       WHERE r.uuid = ? AND r.cliente_id = ?
-    `, [uuid, clienteId]);
+    `, [uuid, cliente.id]);
 
     if (rows.length === 0) {
       return res.status(404).json({ message: 'Reporte no encontrado' });
@@ -112,16 +81,7 @@ export const getReporteByUuid = async (req, res) => {
 
     const reporte = rows[0];
 
-    // NUEVO: Obtener evidencias del reporte
-    const [evidencias] = await pool.query(
-      `SELECT uuid, url, tipo, descripcion, orden, created_at
-       FROM reporte_evidencias
-       WHERE reporte_id = ?
-       ORDER BY orden ASC`,
-      [reporte.id]
-    );
-
-    reporte.evidencias = evidencias;
+    reporte.evidencias = await getEvidenciasPorReporte(reporte.id);
 
     res.json(reporte);
   } catch (error) {
@@ -130,53 +90,39 @@ export const getReporteByUuid = async (req, res) => {
   }
 };
 
-// =====================================================
-// ACTUALIZAR CONFORMIDAD DEL REPORTE (Cliente autenticado)
-// VERSIÓN CORREGIDA
-// =====================================================
 export const updateConformidad = async (req, res) => {
   try {
     const userId = req.user.id;
     const { uuid } = req.params;
 
-    // Validar datos de entrada
     validateConformidad(req.body);
 
     const { cliente_conforme, aprobado_por } = req.body;
 
-    // Obtener el ID del cliente
-    const [cliente] = await pool.query(
-      'SELECT id FROM clientes WHERE user_id = ?',
-      [userId]
-    );
+    const cliente = await getClienteByUserId(userId);
 
-    if (cliente.length === 0) {
+    if (!cliente) {
       return res.status(404).json({ message: 'Cliente no encontrado' });
     }
 
-    const clienteId = cliente[0].id;
-
-    // Verificar que el reporte existe
     const [reporte] = await pool.query(
       'SELECT id, cliente_id, cliente_conforme, estado FROM reportes WHERE uuid = ?',
       [uuid]
     );
 
     if (reporte.length === 0) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         message: 'Reporte no encontrado',
         uuid_buscado: uuid
       });
     }
 
-    // Verificar permisos
-    if (reporte[0].cliente_id !== clienteId) {
+    if (reporte[0].cliente_id !== cliente.id) {
       return res.status(403).json({ message: 'No tienes permisos para modificar este reporte' });
     }
 
-    // Actualizar conformidad
     const [result] = await pool.query(
-      `UPDATE reportes 
+      `UPDATE reportes
        SET cliente_conforme = ?, aprobado_por = ?
        WHERE uuid = ?`,
       [cliente_conforme, aprobado_por || null, uuid]
@@ -186,7 +132,7 @@ export const updateConformidad = async (req, res) => {
       return res.status(500).json({ message: 'Error al actualizar el reporte' });
     }
 
-    res.json({ 
+    res.json({
       message: 'Conformidad actualizada correctamente',
       estado: cliente_conforme,
       aprobado_por: aprobado_por || null
@@ -194,9 +140,9 @@ export const updateConformidad = async (req, res) => {
 
   } catch (error) {
     if (error instanceof ValidationError) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         message: error.message,
-        field: error.field 
+        field: error.field
       });
     }
 
@@ -205,9 +151,6 @@ export const updateConformidad = async (req, res) => {
   }
 };
 
-// =====================================================
-// OBTENER MI PERFIL (Cliente autenticado)
-// =====================================================
 export const getMiPerfil = async (req, res) => {
   try {
     const userId = req.user.id;

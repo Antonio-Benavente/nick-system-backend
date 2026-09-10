@@ -1,10 +1,9 @@
 import pool from "../config/db.js";
 import { v4 as uuidv4 } from "uuid";
 import { validateReporte, validateReporteUpdate, ValidationError } from "../validators/validators.js";
+import { attachEvidencias } from "../services/evidencias.service.js";
+import { getTecnicoByUserId } from "../services/entidades.service.js";
 
-// =====================================================
-// OBTENER MI PERFIL (TÉCNICO autenticado)
-// =====================================================
 export const getMiPerfil = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -43,27 +42,17 @@ export const getMiPerfil = async (req, res) => {
   }
 };
 
-// =====================================================
-// OBTENER MIS REPORTES (TÉCNICO autenticado)
-// =====================================================
 export const getMisReportes = async (req, res) => {
   try {
     const userId = req.user.id;
     const { incluir_eliminados } = req.query;
 
-    // Primero obtener el ID del técnico
-    const [tecnico] = await pool.query(
-      "SELECT id FROM tecnicos WHERE user_id = ?",
-      [userId],
-    );
+    const tecnico = await getTecnicoByUserId(userId);
 
-    if (tecnico.length === 0) {
+    if (!tecnico) {
       return res.status(404).json({ message: "Técnico no encontrado" });
     }
 
-    const tecnicoId = tecnico[0].id;
-
-    // Obtener reportes del técnico
     let query = `
       SELECT
         r.id,
@@ -84,7 +73,7 @@ export const getMisReportes = async (req, res) => {
       WHERE r.tecnico_id = ?
     `;
 
-    const params = [tecnicoId];
+    const params = [tecnico.id];
 
     if (incluir_eliminados !== "true") {
       query += ` AND r.estado = 'activo'`;
@@ -94,46 +83,23 @@ export const getMisReportes = async (req, res) => {
 
     const [reportes] = await pool.query(query, params);
 
-    // NUEVO: Obtener evidencias para cada reporte
-    for (const reporte of reportes) {
-      const [evidencias] = await pool.query(
-        `SELECT uuid, url, tipo, descripcion, orden, created_at
-         FROM reporte_evidencias
-         WHERE reporte_id = ?
-         ORDER BY orden ASC`,
-        [reporte.id]
-      );
-      
-      reporte.evidencias = evidencias;
-    }
-
-    res.json(reportes);
+    res.json(await attachEvidencias(reportes));
   } catch (error) {
     console.error("Error en getMisReportes:", error);
     res.status(500).json({ message: "Error al obtener reportes" });
   }
 };
 
-// =====================================================
-// OBTENER MIS ESTADÍSTICAS (TÉCNICO autenticado)
-// =====================================================
 export const getMisEstadisticas = async (req, res) => {
   try {
     const userId = req.user.id;
 
-    // Obtener el ID del técnico
-    const [tecnico] = await pool.query(
-      "SELECT id FROM tecnicos WHERE user_id = ?",
-      [userId],
-    );
+    const tecnico = await getTecnicoByUserId(userId);
 
-    if (tecnico.length === 0) {
+    if (!tecnico) {
       return res.status(404).json({ message: "Técnico no encontrado" });
     }
 
-    const tecnicoId = tecnico[0].id;
-
-    // Contar reportes (solo activos para estadísticas)
     const [stats] = await pool.query(
       `
       SELECT
@@ -146,10 +112,9 @@ export const getMisEstadisticas = async (req, res) => {
       FROM reportes
       WHERE tecnico_id = ? AND estado = 'activo'
     `,
-      [tecnicoId],
+      [tecnico.id],
     );
 
-    // Reportes por mes (últimos 6 meses, solo activos)
     const [reportesPorMes] = await pool.query(
       `
       SELECT
@@ -162,7 +127,7 @@ export const getMisEstadisticas = async (req, res) => {
       GROUP BY DATE_FORMAT(fecha, '%Y-%m')
       ORDER BY mes DESC
     `,
-      [tecnicoId],
+      [tecnico.id],
     );
 
     res.json({
@@ -175,16 +140,12 @@ export const getMisEstadisticas = async (req, res) => {
   }
 };
 
-// =====================================================
-// CREAR REPORTE CON EVIDENCIAS (TÉCNICO autenticado)
-// =====================================================
 export const createReporte = async (req, res) => {
   const connection = await pool.getConnection();
-  
+
   try {
     const userId = req.user.id;
 
-    // Validar datos de entrada
     validateReporte(req.body);
 
     const {
@@ -193,23 +154,17 @@ export const createReporte = async (req, res) => {
       descripcion,
       fecha,
       modalidad,
-      evidencias // NUEVO: Array de { url, tipo, descripcion }
-    } = req.body;
+      evidencias     } = req.body;
 
     await connection.beginTransaction();
 
-    // Obtener ID del técnico
-    const [tecnico] = await connection.query(
-      'SELECT id, uuid FROM tecnicos WHERE user_id = ?',
-      [userId]
-    );
+    const tecnico = await getTecnicoByUserId(userId, connection);
 
-    if (tecnico.length === 0) {
+    if (!tecnico) {
       await connection.rollback();
       return res.status(404).json({ message: 'Técnico no encontrado' });
     }
 
-    // Obtener ID del cliente
     const [cliente] = await connection.query(
       'SELECT id FROM clientes WHERE uuid = ?',
       [cliente_uuid]
@@ -223,16 +178,15 @@ export const createReporte = async (req, res) => {
     const reporteUUID = uuidv4();
     const clienteConforme = req.body.cliente_conforme || 'por_confirmar';
 
-    // Insertar reporte (SIN foto_antes ni foto_despues)
     const [reporteResult] = await connection.query(
       `INSERT INTO reportes
-       (uuid, cliente_id, tecnico_id, categoria, descripcion, fecha, modalidad, 
+       (uuid, cliente_id, tecnico_id, categoria, descripcion, fecha, modalidad,
         cliente_conforme, aprobado_por, estado)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'activo')`,
       [
         reporteUUID,
         cliente[0].id,
-        tecnico[0].id,
+        tecnico.id,
         categoria,
         descripcion,
         fecha,
@@ -246,13 +200,11 @@ export const createReporte = async (req, res) => {
 
     const reporteId = reporteResult.insertId;
 
-    // NUEVO: Insertar evidencias si se proporcionaron
     if (evidencias && Array.isArray(evidencias) && evidencias.length > 0) {
       for (let i = 0; i < evidencias.length; i++) {
         const evidencia = evidencias[i];
-        
-        if (!evidencia.url) continue; // Saltar si no tiene URL
 
+        if (!evidencia.url) continue;
         const evidenciaUUID = uuidv4();
 
         await connection.query(
@@ -281,14 +233,14 @@ export const createReporte = async (req, res) => {
 
   } catch (error) {
     await connection.rollback();
-    
+
     if (error instanceof ValidationError) {
       return res.status(400).json({
         message: error.message,
         field: error.field,
       });
     }
-    
+
     console.error('Error en createReporte:', error);
     res.status(500).json({ message: 'Error al crear reporte' });
   } finally {
@@ -296,17 +248,13 @@ export const createReporte = async (req, res) => {
   }
 };
 
-// =====================================================
-// EDITAR REPORTE CON EVIDENCIAS (TÉCNICO autenticado)
-// =====================================================
 export const updateReporte = async (req, res) => {
   const connection = await pool.getConnection();
-  
+
   try {
     const userId = req.user.id;
     const { reporteUUID } = req.params;
 
-    // Validar datos de entrada (solo campos presentes)
     const fieldsToValidate = { ...req.body };
     if (fieldsToValidate.evidencias) delete fieldsToValidate.evidencias;
     validateReporteUpdate(fieldsToValidate);
@@ -318,38 +266,31 @@ export const updateReporte = async (req, res) => {
       modalidad,
       cliente_conforme,
       aprobado_por,
-      evidencias // NUEVO: Array de { url, tipo, descripcion }
-    } = req.body;
+      evidencias     } = req.body;
 
     await connection.beginTransaction();
 
-    // Obtener ID del técnico
-    const [tecnico] = await connection.query(
-      'SELECT id FROM tecnicos WHERE user_id = ?',
-      [userId]
-    );
+    const tecnico = await getTecnicoByUserId(userId, connection);
 
-    if (tecnico.length === 0) {
+    if (!tecnico) {
       await connection.rollback();
       return res.status(404).json({ message: 'Técnico no encontrado' });
     }
 
-    // Obtener reporte y verificar que pertenece al técnico
     const [reporte] = await connection.query(
       'SELECT id FROM reportes WHERE uuid = ? AND tecnico_id = ?',
-      [reporteUUID, tecnico[0].id]
+      [reporteUUID, tecnico.id]
     );
 
     if (reporte.length === 0) {
       await connection.rollback();
-      return res.status(403).json({ 
-        message: 'No tiene permiso para editar este reporte o el reporte no existe' 
+      return res.status(403).json({
+        message: 'No tiene permiso para editar este reporte o el reporte no existe'
       });
     }
 
     const reporteId = reporte[0].id;
 
-    // Actualizar reporte
     const updateFields = [];
     const updateValues = [];
 
@@ -388,12 +329,10 @@ export const updateReporte = async (req, res) => {
       );
     }
 
-    // NUEVO: Actualizar evidencias si se proporcionaron
     let evidenciasAgregadas = 0;
     let evidenciasActualizadas = 0;
 
     if (evidencias && Array.isArray(evidencias) && evidencias.length > 0) {
-      // Obtener evidencias existentes
       const [existentes] = await connection.query(
         'SELECT uuid FROM reporte_evidencias WHERE reporte_id = ?',
         [reporteId]
@@ -403,13 +342,12 @@ export const updateReporte = async (req, res) => {
 
       for (let i = 0; i < evidencias.length; i++) {
         const evidencia = evidencias[i];
-        
+
         if (!evidencia.url) continue;
 
         if (evidencia.uuid && existentesUUIDs.has(evidencia.uuid)) {
-          // Actualizar evidencia existente
           await connection.query(
-            `UPDATE reporte_evidencias 
+            `UPDATE reporte_evidencias
              SET url = ?, tipo = ?, descripcion = ?, orden = ?, updated_at = CURRENT_TIMESTAMP
              WHERE uuid = ? AND reporte_id = ?`,
             [
@@ -423,7 +361,6 @@ export const updateReporte = async (req, res) => {
           );
           evidenciasActualizadas++;
         } else {
-          // Crear nueva evidencia
           const evidenciaUUID = uuidv4();
           await connection.query(
             `INSERT INTO reporte_evidencias
@@ -454,14 +391,14 @@ export const updateReporte = async (req, res) => {
 
   } catch (error) {
     await connection.rollback();
-    
+
     if (error instanceof ValidationError) {
       return res.status(400).json({
         message: error.message,
         field: error.field,
       });
     }
-    
+
     console.error('Error en updateReporte:', error);
     res.status(500).json({ message: 'Error al actualizar reporte' });
   } finally {

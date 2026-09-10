@@ -36,4 +36,5 @@ dist/
 build/
 
 # Otros
+docs/
 AGENTS.md

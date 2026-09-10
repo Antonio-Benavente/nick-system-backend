@@ -1,7 +1,4 @@
-/**
- * Validadores para entrada de datos
- * Implementa validación de datos antes de procesarlos
- */
+
 
 export class ValidationError extends Error {
   constructor(message, field = null) {
@@ -12,7 +9,7 @@ export class ValidationError extends Error {
   }
 }
 
-export const validateEmail = (email) => {
+const validateEmail = (email) => {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!email || !emailRegex.test(email)) {
     throw new ValidationError("Email inválido", "email");
@@ -133,8 +130,79 @@ export const validateReporteUpdate = (data) => {
   return true;
 };
 
+const CLAVE_LIMITS = {
+  empresa: 150,
+  tipo: 7,
+  usuario: 100,
+  password: 30,
+};
+
+export const CLAVE_TIPOS = ['correo', 'pc', 'anydesk'];
+
+export const CLAVE_TIPO_LABELS = {
+  correo: 'correo',
+  pc: 'nombre de PC',
+  anydesk: 'ID de AnyDesk',
+};
+
+export const validateClave = (data) => {
+  if (!data.empresa || data.empresa.trim().length < 2) {
+    throw new ValidationError(
+      "Empresa es requerida y debe tener al menos 2 caracteres",
+      "empresa",
+    );
+  }
+  if (data.empresa.trim().length > CLAVE_LIMITS.empresa) {
+    throw new ValidationError(
+      `Empresa no puede exceder ${CLAVE_LIMITS.empresa} caracteres`,
+      "empresa",
+    );
+  }
+
+  if (!data.tipo || !CLAVE_TIPOS.includes(data.tipo)) {
+    throw new ValidationError(
+      "Tipo es requerido y debe ser correo, pc o anydesk",
+      "tipo",
+    );
+  }
+
+  if (!data.usuario || data.usuario.trim().length < 2) {
+    throw new ValidationError(
+      `El ${CLAVE_TIPO_LABELS[data.tipo]} es requerido y debe tener al menos 2 caracteres`,
+      "usuario",
+    );
+  }
+  if (data.usuario.length > CLAVE_LIMITS.usuario) {
+    throw new ValidationError(
+      `El ${CLAVE_TIPO_LABELS[data.tipo]} no puede exceder ${CLAVE_LIMITS.usuario} caracteres`,
+      "usuario",
+    );
+  }
+  if (data.tipo === 'correo') {
+    try {
+      validateEmail(data.usuario);
+    } catch (e) {
+      if (e instanceof ValidationError) {
+        throw new ValidationError(e.message, 'usuario');
+      }
+      throw e;
+    }
+  }
+
+  if (!data.password || data.password.length === 0) {
+    throw new ValidationError("Password es requerido", "password");
+  }
+  if (data.password.length > CLAVE_LIMITS.password) {
+    throw new ValidationError(
+      `Password no puede exceder ${CLAVE_LIMITS.password} caracteres`,
+      "password",
+    );
+  }
+
+  return true;
+};
+
 export const validateConformidad = (data) => {
-  // Validar que el estado de conformidad sea válido
   if (
     !data.cliente_conforme ||
     !["conforme", "no_conforme", "por_confirmar"].includes(data.cliente_conforme)
@@ -145,7 +213,6 @@ export const validateConformidad = (data) => {
     );
   }
 
-  // Solo requerir aprobado_por si el estado es conforme o no_conforme
   if (data.cliente_conforme === "conforme" || data.cliente_conforme === "no_conforme") {
     if (!data.aprobado_por || data.aprobado_por.trim().length < 2) {
       throw new ValidationError(

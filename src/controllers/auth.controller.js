@@ -2,11 +2,6 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import pool from '../config/db.js';
 
-/**
- * Controlador de AutenticaciÃ³n
- * Maneja el login de usuarios
- */
-
 export const login = async (req, res) => {
   try {
     const { email, password } = req.body;

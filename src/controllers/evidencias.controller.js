@@ -1,14 +1,10 @@
 import pool from '../config/db.js';
 import { v4 as uuidv4 } from 'uuid';
 
-// =====================================================
-// OBTENER EVIDENCIAS DE UN REPORTE
-// =====================================================
 export const getEvidencias = async (req, res) => {
   try {
     const { reporte_uuid } = req.params;
 
-    // Obtener el ID del reporte
     const [reporte] = await pool.query(
       'SELECT id FROM reportes WHERE uuid = ?',
       [reporte_uuid]
@@ -18,9 +14,8 @@ export const getEvidencias = async (req, res) => {
       return res.status(404).json({ message: 'Reporte no encontrado' });
     }
 
-    // Obtener evidencias ordenadas
     const [evidencias] = await pool.query(
-      `SELECT 
+      `SELECT
         uuid,
         url,
         tipo,
@@ -40,24 +35,19 @@ export const getEvidencias = async (req, res) => {
   }
 };
 
-// =====================================================
-// AGREGAR EVIDENCIA A UN REPORTE
-// =====================================================
 export const addEvidencia = async (req, res) => {
   try {
     const { reporte_uuid } = req.params;
     const { url, tipo, descripcion, orden } = req.body;
 
-    // Validaciones
     if (!url) {
       return res.status(400).json({ message: 'URL es requerida' });
     }
 
     if (tipo && !['imagen', 'video', 'documento'].includes(tipo)) {
-      return res.status(400).json({ message: 'Tipo invÃƒÂ¡lido' });
+      return res.status(400).json({ message: 'Tipo inválido' });
     }
 
-    // Obtener el ID del reporte
     const [reporte] = await pool.query(
       'SELECT id FROM reportes WHERE uuid = ?',
       [reporte_uuid]
@@ -69,7 +59,6 @@ export const addEvidencia = async (req, res) => {
 
     const reporteId = reporte[0].id;
 
-    // Si no se especifica orden, usar el siguiente disponible
     let ordenFinal = orden;
     if (!ordenFinal) {
       const [maxOrden] = await pool.query(
@@ -82,7 +71,7 @@ export const addEvidencia = async (req, res) => {
     const evidenciaUUID = uuidv4();
 
     await pool.query(
-      `INSERT INTO reporte_evidencias 
+      `INSERT INTO reporte_evidencias
        (uuid, reporte_id, url, tipo, descripcion, orden)
        VALUES (?, ?, ?, ?, ?, ?)`,
       [evidenciaUUID, reporteId, url, tipo || 'imagen', descripcion || null, ordenFinal]
@@ -98,19 +87,14 @@ export const addEvidencia = async (req, res) => {
   }
 };
 
-// =====================================================
-// AGREGAR MULTIPLES EVIDENCIAS (BATCH)
-// =====================================================
 export const addEvidenciasBatch = async (req, res) => {
   try {
     const { reporte_uuid } = req.params;
-    const { evidencias } = req.body; // Array de { url, tipo, descripcion }
-
+    const { evidencias } = req.body;
     if (!Array.isArray(evidencias) || evidencias.length === 0) {
       return res.status(400).json({ message: 'Debe proporcionar al menos una evidencia' });
     }
 
-    // Obtener el ID del reporte
     const [reporte] = await pool.query(
       'SELECT id FROM reportes WHERE uuid = ?',
       [reporte_uuid]
@@ -122,7 +106,6 @@ export const addEvidenciasBatch = async (req, res) => {
 
     const reporteId = reporte[0].id;
 
-    // Obtener el orden inicial
     const [maxOrden] = await pool.query(
       'SELECT COALESCE(MAX(orden), 0) AS max_orden FROM reporte_evidencias WHERE reporte_id = ?',
       [reporteId]
@@ -131,7 +114,6 @@ export const addEvidenciasBatch = async (req, res) => {
     let ordenActual = maxOrden[0].max_orden + 1;
     const uuids = [];
 
-    // Insertar cada evidencia
     for (const evidencia of evidencias) {
       if (!evidencia.url) continue;
 
@@ -139,7 +121,7 @@ export const addEvidenciasBatch = async (req, res) => {
       uuids.push(evidenciaUUID);
 
       await pool.query(
-        `INSERT INTO reporte_evidencias 
+        `INSERT INTO reporte_evidencias
          (uuid, reporte_id, url, tipo, descripcion, orden)
          VALUES (?, ?, ?, ?, ?, ?)`,
         [
@@ -163,9 +145,6 @@ export const addEvidenciasBatch = async (req, res) => {
   }
 };
 
-// =====================================================
-// ACTUALIZAR EVIDENCIA
-// =====================================================
 export const updateEvidencia = async (req, res) => {
   try {
     const { uuid } = req.params;
@@ -181,7 +160,7 @@ export const updateEvidencia = async (req, res) => {
 
     if (tipo) {
       if (!['imagen', 'video', 'documento'].includes(tipo)) {
-        return res.status(400).json({ message: 'Tipo invÃƒÂ¡lido' });
+        return res.status(400).json({ message: 'Tipo inválido' });
       }
       campos.push('tipo = ?');
       valores.push(tipo);
@@ -219,9 +198,6 @@ export const updateEvidencia = async (req, res) => {
   }
 };
 
-// =====================================================
-// ELIMINAR EVIDENCIA
-// =====================================================
 export const deleteEvidencia = async (req, res) => {
   try {
     const { uuid } = req.params;
@@ -242,19 +218,14 @@ export const deleteEvidencia = async (req, res) => {
   }
 };
 
-// =====================================================
-// REORDENAR EVIDENCIAS
-// =====================================================
 export const reordenarEvidencias = async (req, res) => {
   try {
     const { reporte_uuid } = req.params;
-    const { orden } = req.body; // Array de UUIDs en el nuevo orden
-
+    const { orden } = req.body;
     if (!Array.isArray(orden) || orden.length === 0) {
       return res.status(400).json({ message: 'Debe proporcionar un array de UUIDs' });
     }
 
-    // Obtener el ID del reporte
     const [reporte] = await pool.query(
       'SELECT id FROM reportes WHERE uuid = ?',
       [reporte_uuid]
@@ -264,7 +235,6 @@ export const reordenarEvidencias = async (req, res) => {
       return res.status(404).json({ message: 'Reporte no encontrado' });
     }
 
-    // Actualizar orden de cada evidencia
     for (let i = 0; i < orden.length; i++) {
       await pool.query(
         'UPDATE reporte_evidencias SET orden = ? WHERE uuid = ? AND reporte_id = ?',

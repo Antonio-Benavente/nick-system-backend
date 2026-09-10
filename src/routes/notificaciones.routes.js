@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import rateLimit from 'express-rate-limit';
 import {
   enviarNotificacionReporte,
   verificarConfiguracion,
@@ -8,20 +9,24 @@ import roleMiddleware from '../middlewares/role.middleware.js';
 
 const router = Router();
 
-// =====================================================
-// RUTAS DE NOTIFICACIONES
-// =====================================================
+const emailLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: {
+    message: 'Demasiadas notificaciones enviadas. Intenta de nuevo más tarde.',
+  },
+});
 
-// POST /notificaciones/reporte/:uuid/enviar
-// Enviar notificación de reporte al cliente
 router.post(
   '/reporte/:uuid/enviar',
   authMiddleware,
   roleMiddleware('tecnico', 'admin'),
+  emailLimiter,
   enviarNotificacionReporte
 );
 
-// GET /notificaciones/verificar
 router.get(
   '/verificar',
   authMiddleware,

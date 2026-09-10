@@ -5,8 +5,8 @@ services:
     region: oregon
     plan: free
     branch: main
-    buildCommand: npm install
-    startCommand: npm start
+    buildCommand: corepack enable && corepack prepare pnpm@11.22.0 --activate && pnpm install --frozen-lockfile
+    startCommand: pnpm start
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV

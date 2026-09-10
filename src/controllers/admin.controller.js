@@ -2,11 +2,9 @@ import pool from '../config/db.js';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import AdminService from '../services/admin.service.js';
-import { validateTecnico, ValidationError, validateReporte, validateReporteUpdate } from '../validators/validators.js';
+import { validateTecnico, ValidationError, validateReporteUpdate, validateClave, validatePassword, CLAVE_TIPO_LABELS } from '../validators/validators.js';
+import { getEvidenciasPorReporte } from '../services/evidencias.service.js';
 
-// =====================================================
-// DASHBOARD - ESTADÍSTICAS GENERALES
-// =====================================================
 export const getDashboardStats = async (req, res) => {
   try {
     const stats = await AdminService.getDashboardStats();
@@ -17,14 +15,10 @@ export const getDashboardStats = async (req, res) => {
   }
 };
 
-// =====================================================
-// REPORTES DEL MES ACTUAL
-// =====================================================
 export const getReportesMesActual = async (req, res) => {
   try {
     const reportes = await AdminService.getReportesMesActual();
-    
-    // Agregar estadísticas del mes
+
     const conformes = reportes.filter(r => r.cliente_conforme === 'conforme').length;
     const no_conformes = reportes.filter(r => r.cliente_conforme === 'no_conforme').length;
     const por_confirmar = reportes.filter(r => r.cliente_conforme === 'por_confirmar').length;
@@ -44,22 +38,16 @@ export const getReportesMesActual = async (req, res) => {
   }
 };
 
-// =====================================================
-// REPORTES POR CATEGORÍA
-// =====================================================
 export const getReportesPorCategoria = async (req, res) => {
   try {
     const categorias = await AdminService.getReportesPorCategoria();
     res.json(categorias);
   } catch (error) {
     console.error('Error en getReportesPorCategoria:', error);
-    res.status(500).json({ message: 'Error al obtener reportes por categorÃƒÂ­a' });
+    res.status(500).json({ message: 'Error al obtener reportes por categoría' });
   }
 };
 
-// =====================================================
-// LISTAR REPORTES CON FILTROS MEJORADOS
-// =====================================================
 export const getReportes = async (req, res) => {
   try {
     const filtros = {
@@ -83,13 +71,10 @@ export const getReportes = async (req, res) => {
   }
 };
 
-// =====================================================
-// OBTENER REPORTE POR UUID CON EVIDENCIAS
-// =====================================================
 export const getReporteByUuid = async (req, res) => {
   try {
     const { uuid } = req.params;
-    
+
     const [rows] = await pool.query(`
       SELECT
         r.*,
@@ -114,16 +99,7 @@ export const getReporteByUuid = async (req, res) => {
 
     const reporte = rows[0];
 
-    // Ã¢Å“â€¦ NUEVO: Obtener evidencias del reporte
-    const [evidencias] = await pool.query(
-      `SELECT uuid, url, tipo, descripcion, orden, created_at
-       FROM reporte_evidencias
-       WHERE reporte_id = ?
-       ORDER BY orden ASC`,
-      [reporte.id]
-    );
-
-    reporte.evidencias = evidencias;
+    reporte.evidencias = await getEvidenciasPorReporte(reporte.id);
 
     res.json(reporte);
   } catch (error) {
@@ -132,15 +108,11 @@ export const getReporteByUuid = async (req, res) => {
   }
 };
 
-// =====================================================
-// ACTUALIZAR REPORTE
-// =====================================================
 export const updateReporte = async (req, res) => {
   const { uuid } = req.params;
   const { categoria, descripcion, fecha, modalidad, estado } = req.body;
 
   try {
-    // Validar datos básicos
     const dataToValidate = {};
     if (categoria !== undefined) dataToValidate.categoria = categoria;
     if (fecha !== undefined) dataToValidate.fecha = fecha;
@@ -150,7 +122,6 @@ export const updateReporte = async (req, res) => {
 
     validateReporteUpdate(dataToValidate);
 
-    // Verificar que existe el reporte
     const [reporte] = await pool.query(
       'SELECT id FROM reportes WHERE uuid = ?',
       [uuid]
@@ -160,7 +131,6 @@ export const updateReporte = async (req, res) => {
       return res.status(404).json({ message: 'Reporte no encontrado' });
     }
 
-    // Verificar que la categoría existe si se proporciona
     if (categoria) {
       const [cat] = await pool.query(
         'SELECT id FROM categorias WHERE nombre = ? AND estado = "activo"',
@@ -171,7 +141,6 @@ export const updateReporte = async (req, res) => {
       }
     }
 
-    // Construir query de actualización dinámica
     const updates = [];
     const values = [];
 
@@ -200,7 +169,6 @@ export const updateReporte = async (req, res) => {
       return res.status(400).json({ message: 'No se proporcionaron campos para actualizar' });
     }
 
-    // Ejecutar actualización
     const query = `UPDATE reportes SET ${updates.join(', ')} WHERE uuid = ?`;
     values.push(uuid);
 
@@ -214,9 +182,9 @@ export const updateReporte = async (req, res) => {
 
   } catch (error) {
     if (error instanceof ValidationError) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         message: error.message,
-        field: error.field 
+        field: error.field
       });
     }
 
@@ -225,13 +193,152 @@ export const updateReporte = async (req, res) => {
   }
 };
 
-// =====================================================
-// LISTAR TÉCNICOS
-// =====================================================
+export const getClaves = async (req, res) => {
+  try {
+    const { incluir_inactivos } = req.query;
+
+    let query = `
+      SELECT
+        id,
+        empresa,
+        tipo,
+        usuario,
+        password,
+        estado
+      FROM claves
+    `;
+
+    if (incluir_inactivos !== 'true') {
+      query += ` WHERE estado = 'activo'`;
+    }
+
+    query += ` ORDER BY empresa`;
+
+    const [rows] = await pool.query(query);
+    res.json(rows);
+  } catch (error) {
+    console.error('Error en getClaves:', error);
+    res.status(500).json({ message: 'Error al obtener la tabla claves' });
+  }
+};
+
+export const createClave = async (req, res) => {
+  const { empresa, tipo, usuario, password } = req.body;
+
+  try {
+    validateClave({ empresa, tipo, usuario, password });
+
+    const [dup] = await pool.query(
+      'SELECT id FROM claves WHERE empresa = ? AND tipo = ? AND usuario = ?',
+      [empresa.trim(), tipo, usuario.trim()]
+    );
+    if (dup.length > 0) {
+      return res.status(409).json({ message: `Ya existe un ${CLAVE_TIPO_LABELS[tipo]} con ese valor en esa empresa` });
+    }
+
+    const [result] = await pool.query(
+      'INSERT INTO claves (empresa, tipo, usuario, password, estado) VALUES (?, ?, ?, ?, ?)',
+      [empresa.trim(), tipo, usuario.trim(), password, 'activo']
+    );
+
+    res.status(201).json({ message: 'Clave creada correctamente', id: result.insertId });
+  } catch (error) {
+    if (error instanceof ValidationError) {
+      return res.status(400).json({ message: error.message, field: error.field });
+    }
+    console.error('Error en createClave:', error);
+    res.status(500).json({ message: 'Error al crear la clave' });
+  }
+};
+
+export const updateClave = async (req, res) => {
+  const { id } = req.params;
+  const { empresa, tipo, usuario, password } = req.body;
+
+  try {
+    if (empresa === undefined && tipo === undefined && usuario === undefined && password === undefined) {
+      return res.status(400).json({ message: 'No se proporcionaron campos para actualizar' });
+    }
+
+    const [rows] = await pool.query('SELECT * FROM claves WHERE id = ?', [id]);
+    if (rows.length === 0) {
+      return res.status(404).json({ message: 'Clave no encontrada' });
+    }
+
+    const newEmpresa = empresa !== undefined ? empresa.trim() : rows[0].empresa;
+    const newTipo = tipo !== undefined ? tipo : rows[0].tipo;
+    const newUsuario = usuario !== undefined ? usuario.trim() : rows[0].usuario;
+    const newPassword = password !== undefined ? password : rows[0].password;
+
+    validateClave({ empresa: newEmpresa, tipo: newTipo, usuario: newUsuario, password: newPassword });
+
+    const [dup] = await pool.query(
+      'SELECT id FROM claves WHERE empresa = ? AND tipo = ? AND usuario = ? AND id != ?',
+      [newEmpresa, newTipo, newUsuario, id]
+    );
+    if (dup.length > 0) {
+      return res.status(409).json({ message: `Ya existe un ${CLAVE_TIPO_LABELS[newTipo]} con ese valor en esa empresa` });
+    }
+
+    await pool.query(
+      'UPDATE claves SET empresa = ?, tipo = ?, usuario = ?, password = ? WHERE id = ?',
+      [newEmpresa, newTipo, newUsuario, newPassword, id]
+    );
+
+    res.json({ message: 'Clave actualizada correctamente' });
+  } catch (error) {
+    if (error instanceof ValidationError) {
+      return res.status(400).json({ message: error.message, field: error.field });
+    }
+    console.error('Error en updateClave:', error);
+    res.status(500).json({ message: 'Error al actualizar la clave' });
+  }
+};
+
+export const deleteClave = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const [result] = await pool.query(
+      `UPDATE claves SET estado = 'inactivo' WHERE id = ?`,
+      [id]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: 'Clave no encontrada' });
+    }
+
+    res.json({ message: 'Clave inactivada correctamente' });
+  } catch (error) {
+    console.error('Error en deleteClave:', error);
+    res.status(500).json({ message: 'Error al inactivar la clave' });
+  }
+};
+
+export const restaurarClave = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const [result] = await pool.query(
+      `UPDATE claves SET estado = 'activo' WHERE id = ? AND estado = 'inactivo'`,
+      [id]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: 'Clave no encontrada o ya está activa' });
+    }
+
+    res.json({ message: 'Clave restaurada correctamente' });
+  } catch (error) {
+    console.error('Error en restaurarClave:', error);
+    res.status(500).json({ message: 'Error al restaurar la clave' });
+  }
+};
+
 export const getTecnicos = async (req, res) => {
   try {
     const { incluir_inactivos } = req.query;
-    
+
     let query = `
       SELECT
         t.id,
@@ -247,28 +354,25 @@ export const getTecnicos = async (req, res) => {
       FROM tecnicos t
       INNER JOIN users u ON u.id = t.user_id
     `;
-    
+
     if (incluir_inactivos !== 'true') {
       query += ` WHERE t.estado = 'activo'`;
     }
-    
+
     query += ` ORDER BY t.fecha_ingreso DESC`;
 
     const [rows] = await pool.query(query);
     res.json(rows);
   } catch (error) {
     console.error('Error en getTecnicos:', error);
-    res.status(500).json({ message: 'Error al obtener tÃƒÂ©cnicos' });
+    res.status(500).json({ message: 'Error al obtener técnicos' });
   }
 };
 
-// =====================================================
-// OBTENER TÉCNICO POR UUID
-// =====================================================
 export const getTecnicoByUuid = async (req, res) => {
   try {
     const { uuid } = req.params;
-    
+
     const [rows] = await pool.query(`
       SELECT
         t.id,
@@ -298,14 +402,10 @@ export const getTecnicoByUuid = async (req, res) => {
   }
 };
 
-// =====================================================
-// CREAR TÉCNICO (CON USUARIO)
-// =====================================================
 export const createTecnico = async (req, res) => {
   const connection = await pool.getConnection();
 
   try {
-    // Validar datos de entrada
     validateTecnico(req.body);
 
     const {
@@ -318,7 +418,6 @@ export const createTecnico = async (req, res) => {
 
     await connection.beginTransaction();
 
-    // Verificar email duplicado
     const [existing] = await connection.query(
       'SELECT id FROM users WHERE email = ?',
       [email]
@@ -329,7 +428,6 @@ export const createTecnico = async (req, res) => {
       return res.status(409).json({ message: 'Email ya registrado' });
     }
 
-    // Crear usuario
     const hashedPassword = await bcrypt.hash(password, 10);
     const userUUID = uuidv4();
 
@@ -341,7 +439,6 @@ export const createTecnico = async (req, res) => {
 
     const userId = userResult.insertId;
 
-    // Crear técnico
     const tecnicoUUID = uuidv4();
 
     await connection.query(
@@ -361,11 +458,11 @@ export const createTecnico = async (req, res) => {
 
   } catch (error) {
     await connection.rollback();
-    
+
     if (error instanceof ValidationError) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         message: error.message,
-        field: error.field 
+        field: error.field
       });
     }
 
@@ -376,9 +473,6 @@ export const createTecnico = async (req, res) => {
   }
 };
 
-// =====================================================
-// ACTUALIZAR TÉCNICO
-// =====================================================
 export const updateTecnico = async (req, res) => {
   const { uuid } = req.params;
   const { nombre, email, telefono, especialidad, password } = req.body;
@@ -386,15 +480,12 @@ export const updateTecnico = async (req, res) => {
   const connection = await pool.getConnection();
 
   try {
-    // Validar contraseña si se proporciona
     if (password) {
-      const { validatePassword } = await import('../validators/validators.js');
       validatePassword(password);
     }
 
     await connection.beginTransaction();
 
-    // Verificar que existe el técnico
     const [tecnico] = await connection.query(
       'SELECT user_id FROM tecnicos WHERE uuid = ?',
       [uuid]
@@ -407,7 +498,6 @@ export const updateTecnico = async (req, res) => {
 
     const userId = tecnico[0].user_id;
 
-    // Si cambió el email, verificar que no esté en uso
     if (email) {
       const [existing] = await connection.query(
         'SELECT id FROM users WHERE email = ? AND id != ?',
@@ -419,14 +509,12 @@ export const updateTecnico = async (req, res) => {
         return res.status(409).json({ message: 'Email ya está en uso' });
       }
 
-      // Actualizar email en users
       await connection.query(
         'UPDATE users SET email = ?, name = ? WHERE id = ?',
         [email, nombre, userId]
       );
     }
 
-    // Si se proporciona nueva contraseña, hashearla y actualizar
     if (password) {
       const hashedPassword = await bcrypt.hash(password, 10);
       await connection.query(
@@ -435,9 +523,8 @@ export const updateTecnico = async (req, res) => {
       );
     }
 
-    // Actualizar técnico
     await connection.query(
-      `UPDATE tecnicos 
+      `UPDATE tecnicos
        SET nombre = ?, email = ?, telefono = ?, especialidad = ?
        WHERE uuid = ?`,
       [nombre, email, telefono, especialidad, uuid]
@@ -449,11 +536,11 @@ export const updateTecnico = async (req, res) => {
 
   } catch (error) {
     await connection.rollback();
-    
+
     if (error instanceof ValidationError) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         message: error.message,
-        field: error.field 
+        field: error.field
       });
     }
 
@@ -464,9 +551,6 @@ export const updateTecnico = async (req, res) => {
   }
 };
 
-// =====================================================
-// ELIMINAR TÉCNICO (SOFT DELETE)
-// =====================================================
 export const deleteTecnico = async (req, res) => {
   const { uuid } = req.params;
 
@@ -487,9 +571,6 @@ export const deleteTecnico = async (req, res) => {
   }
 };
 
-// =====================================================
-// RESTAURAR TÉCNICO
-// =====================================================
 export const restaurarTecnico = async (req, res) => {
   const { uuid } = req.params;
 

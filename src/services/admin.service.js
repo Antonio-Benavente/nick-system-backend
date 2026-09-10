@@ -1,13 +1,8 @@
 import pool from '../config/db.js';
+import { attachEvidencias } from './evidencias.service.js';
 
-/**
- * Servicio para operaciones administrativas
- * Implementa lógica de negocio separada del controlador
- */
 class AdminService {
-  /**
-   * Obtiene estadísticas generales del dashboard
-   */
+
   async getDashboardStats() {
     const [stats] = await pool.query(`
       SELECT
@@ -22,9 +17,6 @@ class AdminService {
     return stats[0];
   }
 
-  /**
-   * Obtiene reportes del mes actual (del 1 hasta la fecha actual)
-   */
   async getReportesMesActual() {
     const [reportes] = await pool.query(`
       SELECT
@@ -52,9 +44,6 @@ class AdminService {
     return reportes;
   }
 
-  /**
-   * Obtiene estadísticas de reportes por categoría
-   */
   async getReportesPorCategoria() {
     const [categorias] = await pool.query(`
       SELECT
@@ -72,9 +61,6 @@ class AdminService {
     return categorias;
   }
 
-  /**
-   * Filtra reportes con múltiples criterios
-   */
   async filtrarReportes(filtros) {
     let query = `
       SELECT
@@ -102,54 +88,45 @@ class AdminService {
 
     const params = [];
 
-    // Filtro por estado
     if (filtros.incluir_eliminados !== 'true') {
       query += ` AND r.estado = 'activo'`;
     }
 
-    // Filtro por nombre de técnico
     if (filtros.tecnico_nombre) {
       query += ` AND t.nombre LIKE ?`;
       params.push(`%${filtros.tecnico_nombre}%`);
     }
 
-    // Filtro por UUID de técnico
     if (filtros.tecnico_uuid) {
       query += ` AND t.uuid = ?`;
       params.push(filtros.tecnico_uuid);
     }
 
-    // Filtro por nombre de cliente
     if (filtros.cliente_nombre) {
       query += ` AND (c.nombre LIKE ? OR c.empresa LIKE ?)`;
       params.push(`%${filtros.cliente_nombre}%`, `%${filtros.cliente_nombre}%`);
     }
 
-    // Filtro por UUID de cliente
     if (filtros.cliente_uuid) {
       query += ` AND c.uuid = ?`;
       params.push(filtros.cliente_uuid);
     }
 
-    // Filtro por categoría
     if (filtros.categoria) {
       query += ` AND r.categoria = ?`;
       params.push(filtros.categoria);
     }
 
-    // Filtro por modalidad
     if (filtros.modalidad) {
       query += ` AND r.modalidad = ?`;
       params.push(filtros.modalidad);
     }
 
-    // Filtro por estado de conformidad
     if (filtros.cliente_conforme) {
       query += ` AND r.cliente_conforme = ?`;
       params.push(filtros.cliente_conforme);
     }
 
-    // Filtro por rango de fechas
     if (filtros.fecha_desde) {
       query += ` AND r.fecha >= ?`;
       params.push(filtros.fecha_desde);
@@ -164,20 +141,7 @@ class AdminService {
 
     const [reportes] = await pool.query(query, params);
 
-    // Obtener evidencias para cada reporte
-    for (const reporte of reportes) {
-      const [evidencias] = await pool.query(
-        `SELECT uuid, url, tipo, descripcion, orden, created_at
-         FROM reporte_evidencias
-         WHERE reporte_id = ?
-         ORDER BY orden ASC`,
-        [reporte.id]
-      );
-      
-      reporte.evidencias = evidencias;
-    }
-
-    return reportes;
+    return attachEvidencias(reportes);
   }
 }
 

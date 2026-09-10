@@ -42,7 +42,7 @@ class EmailService {
       }
 
       console.log('✅ Email enviado exitosamente. ID:', data.id);
-      
+
       return {
         success: true,
         messageId: data.id
@@ -196,7 +196,7 @@ class EmailService {
             </div>
 
             <div class="message">
-              Se ha completado un servicio técnico que requiere su revisión y conformidad. 
+              Se ha completado un servicio técnico que requiere su revisión y conformidad.
               El reporte está disponible en nuestro portal con todas las evidencias y detalles del trabajo realizado.
             </div>
 
@@ -224,8 +224,8 @@ class EmailService {
             </div>
 
             <div class="warning">
-              <strong>⚠️ Acción requerida:</strong> 
-              <p>Su conformidad es necesaria para completar el proceso. 
+              <strong>⚠️ Acción requerida:</strong>
+              <p>Su conformidad es necesaria para completar el proceso.
               Por favor ingrese al portal para revisar y confirmar en las próximas 48 horas.</p>
             </div>
 

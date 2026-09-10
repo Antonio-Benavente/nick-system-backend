@@ -11,19 +11,16 @@ import roleMiddleware from '../middlewares/role.middleware.js';
 
 const router = Router();
 
-// Leer categorías - todos los autenticados
-router.get('/', authMiddleware, getCategorias);
+router.use(authMiddleware);
 
-// Crear categoría - solo admin
-router.post('/', authMiddleware, roleMiddleware('admin'), createCategoria);
+router.get('/', getCategorias);
 
-// Actualizar categoría - solo admin
-router.put('/:id', authMiddleware, roleMiddleware('admin'), updateCategoria);
+router.post('/', roleMiddleware('admin'), createCategoria);
 
-// Eliminar categoría (soft delete) - solo admin
-router.delete('/:id', authMiddleware, roleMiddleware('admin'), deleteCategoria);
+router.put('/:id', roleMiddleware('admin'), updateCategoria);
 
-// Restaurar categoría eliminada - solo admin
-router.patch('/:id/restaurar', authMiddleware, roleMiddleware('admin'), restaurarCategoria);
+router.delete('/:id', roleMiddleware('admin'), deleteCategoria);
+
+router.patch('/:id/restaurar', roleMiddleware('admin'), restaurarCategoria);
 
 export default router;

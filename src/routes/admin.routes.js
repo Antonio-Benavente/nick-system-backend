@@ -1,16 +1,19 @@
 import { Router } from 'express';
 import {
-  // Dashboard y Estadísticas
   getDashboardStats,
   getReportesMesActual,
   getReportesPorCategoria,
-  
-  // Reportes
+
   getReportes,
   getReporteByUuid,
   updateReporte,
-  
-  // Técnicos
+
+  getClaves,
+  createClave,
+  updateClave,
+  deleteClave,
+  restaurarClave,
+
   getTecnicos,
   getTecnicoByUuid,
   createTecnico,
@@ -19,7 +22,6 @@ import {
   restaurarTecnico
 } from '../controllers/admin.controller.js';
 import {
-  // Clientes
   getClientes,
   getClienteByUuid,
   createCliente,
@@ -33,77 +35,52 @@ import roleMiddleware from '../middlewares/role.middleware.js';
 
 const router = Router();
 
-// Todas las rutas requieren autenticación y rol admin
 router.use(authMiddleware, roleMiddleware('admin'));
 
-// =====================================================
-// DASHBOARD Y ESTADÍSTICAS
-// =====================================================
-// GET /admin/dashboard - Estadísticas generales
 router.get('/dashboard', getDashboardStats);
 
-// GET /admin/reportes/mes-actual - Reportes del mes actual
 router.get('/reportes/mes-actual', getReportesMesActual);
 
-// GET /admin/reportes/por-categoria - Reportes agrupados por categorÃƒÂ­a
 router.get('/reportes/por-categoria', getReportesPorCategoria);
 
-// =====================================================
-// GESTIÓN DE REPORTES
-// =====================================================
-// GET /admin/reportes - Listar todos los reportes con filtros
-// Query params: incluir_eliminados, tecnico_nombre, tecnico_uuid, cliente_nombre, 
-//               cliente_uuid, categoria, modalidad, cliente_conforme, fecha_desde, fecha_hasta
+router.get('/claves', getClaves);
+
+router.post('/claves', createClave);
+
+router.put('/claves/:id', updateClave);
+
+router.delete('/claves/:id', deleteClave);
+
+router.patch('/claves/:id/restaurar', restaurarClave);
+
 router.get('/reportes', getReportes);
 
-// GET /admin/reportes/:uuid - Ver reporte especifico
 router.get('/reportes/:uuid', getReporteByUuid);
 
-// PUT /admin/reportes/:uuid - Actualizar reporte
-// Body: { categoria?, descripcion?, fecha?, modalidad?, estado? }
 router.put('/reportes/:uuid', updateReporte);
 
-// =====================================================
-// CRUD TÉCNICOS
-// =====================================================
-// GET /admin/tecnicos - Listar técnicos
 router.get('/tecnicos', getTecnicos);
 
-// GET /admin/tecnicos/:uuid - Ver técnico específico
 router.get('/tecnicos/:uuid', getTecnicoByUuid);
 
-// POST /admin/tecnicos - Crear nuevo técnico (con usuario)
 router.post('/tecnicos', createTecnico);
 
-// PUT /admin/tecnicos/:uuid - Actualizar técnico
 router.put('/tecnicos/:uuid', updateTecnico);
 
-// DELETE /admin/tecnicos/:uuid - Inactivar técnico (soft delete)
 router.delete('/tecnicos/:uuid', deleteTecnico);
 
-// PATCH /admin/tecnicos/:uuid/restaurar - Restaurar técnico inactivo
 router.patch('/tecnicos/:uuid/restaurar', restaurarTecnico);
 
-
-// =====================================================
-// CRUD CLIENTES
-// =====================================================
-// GET /admin/clientes - Listar clientes
 router.get('/clientes', getClientes);
 
-// GET /admin/clientes/:uuid - Ver cliente específico
 router.get('/clientes/:uuid', getClienteByUuid);
 
-// POST /admin/clientes - Crear nuevo cliente
 router.post('/clientes', createCliente );
 
-// PUT /admin/clientes/:uuid - Actualizar cliente
 router.put('/clientes/:uuid', updateCliente);
 
-// DELETE /admin/clientes/:uuid - Inactivar cliente (soft delete)
 router.delete('/clientes/:uuid', deleteCliente);
 
-// PATCH /admin/clientes/:uuid/restaurar - Restaurar cliente inactivo
 router.patch('/clientes/:uuid/restaurar', restaurarCliente);
 
 export default router;

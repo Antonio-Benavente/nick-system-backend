@@ -1,15 +1,12 @@
 import pool from '../config/db.js';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
-import { validateCliente, ValidationError } from '../validators/validators.js';
+import { validateCliente, validatePassword, ValidationError } from '../validators/validators.js';
 
-// =====================================================
-// LISTAR CLIENTES
-// =====================================================
 export const getClientes = async (req, res) => {
   try {
     const { incluir_inactivos } = req.query;
-    
+
     let query = `
       SELECT
         c.id,
@@ -26,11 +23,11 @@ export const getClientes = async (req, res) => {
       FROM clientes c
       LEFT JOIN users u ON u.id = c.user_id
     `;
-    
+
     if (incluir_inactivos !== 'true') {
       query += ` WHERE c.estado = 'activo'`;
     }
-    
+
     query += ` ORDER BY c.fecha_registro DESC`;
 
     const [rows] = await pool.query(query);
@@ -41,13 +38,10 @@ export const getClientes = async (req, res) => {
   }
 };
 
-// =====================================================
-// OBTENER CLIENTE POR UUID
-// =====================================================
 export const getClienteByUuid = async (req, res) => {
   try {
     const { uuid } = req.params;
-    
+
     const [rows] = await pool.query(`
       SELECT
         c.id,
@@ -78,9 +72,6 @@ export const getClienteByUuid = async (req, res) => {
   }
 };
 
-// =====================================================
-// CREAR CLIENTE (CON USUARIO)
-// =====================================================
 export const createCliente = async (req, res) => {
   const connection = await pool.getConnection();
 
@@ -99,8 +90,7 @@ export const createCliente = async (req, res) => {
     await connection.beginTransaction();
 
     let userId = null;
-    let userUUID = null; // DECLARADO FUERA
-
+    let userUUID = null;
     if (password) {
       const [existing] = await connection.query(
         'SELECT id FROM users WHERE email = ?',
@@ -113,8 +103,7 @@ export const createCliente = async (req, res) => {
       }
 
       const hashedPassword = await bcrypt.hash(password, 10);
-      userUUID = uuidv4(); // ASIGNADO
-
+      userUUID = uuidv4();
       const [userResult] = await connection.query(
         `INSERT INTO users (uuid, name, email, password, role, empresa)
          VALUES (?, ?, ?, ?, 'cliente', ?)`,
@@ -150,9 +139,6 @@ export const createCliente = async (req, res) => {
   }
 };
 
-// =====================================================
-// ACTUALIZAR CLIENTE
-// =====================================================
 export const updateCliente = async (req, res) => {
   const { uuid } = req.params;
   const { nombre, empresa, email, telefono, direccion, password } = req.body;
@@ -160,9 +146,7 @@ export const updateCliente = async (req, res) => {
   const connection = await pool.getConnection();
 
   try {
-    // Validar contraseña si se proporciona
     if (password) {
-      const { validatePassword } = await import('../validators/validators.js');
       validatePassword(password);
     }
 
@@ -180,7 +164,6 @@ export const updateCliente = async (req, res) => {
 
     const userId = cliente[0].user_id;
 
-    // Si tiene usuario asociado y cambiar el email
     if (userId && email) {
       const [existing] = await connection.query(
         'SELECT id FROM users WHERE email = ? AND id != ?',
@@ -198,7 +181,6 @@ export const updateCliente = async (req, res) => {
       );
     }
 
-    // Si se proporciona nueva contraseña, hashearla y actualizar
     if (userId && password) {
       const hashedPassword = await bcrypt.hash(password, 10);
       await connection.query(
@@ -208,7 +190,7 @@ export const updateCliente = async (req, res) => {
     }
 
     await connection.query(
-      `UPDATE clientes 
+      `UPDATE clientes
        SET nombre = ?, empresa = ?, email = ?, telefono = ?, direccion = ?
        WHERE uuid = ?`,
       [nombre, empresa, email, telefono, direccion, uuid]
@@ -220,11 +202,11 @@ export const updateCliente = async (req, res) => {
 
   } catch (error) {
     await connection.rollback();
-    
+
     if (error instanceof ValidationError) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         message: error.message,
-        field: error.field 
+        field: error.field
       });
     }
 
@@ -235,9 +217,6 @@ export const updateCliente = async (req, res) => {
   }
 };
 
-// =====================================================
-// ELIMINAR CLIENTE (SOFT DELETE)
-// =====================================================
 export const deleteCliente = async (req, res) => {
   const { uuid } = req.params;
 
@@ -258,9 +237,6 @@ export const deleteCliente = async (req, res) => {
   }
 };
 
-// =====================================================
-// RESTAURAR CLIENTE
-// =====================================================
 export const restaurarCliente = async (req, res) => {
   const { uuid } = req.params;
 

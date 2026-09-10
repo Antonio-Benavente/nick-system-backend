@@ -1,20 +1,17 @@
 import dotenv from 'dotenv';
 import mysql from 'mysql2/promise';
 
-// Cargar variables de entorno
-dotenv.config();
+dotenv.config({ quiet: true });
 
-// Verificar que la URL de MySQL esté configurada
 if (!process.env.DATABASE_URL) {
   console.error('❌ ERROR: DATABASE_URL no está definida en las variables de entorno');
   console.error('📍 Por favor, configura la variable en tu archivo .env');
-  console.error('📝 Ejemplo: DATABASE_URL=mysql://usuario:password@host:3306/database');
+  console.error('📝 Ejemplo: DATABASE_URL=mysql://usuario:password@host:3307/database');
   process.exit(1);
 }
 
 console.log('🔌 Creando pool de conexiones MySQL...');
 
-// Crear pool de conexiones con configuración mejorada
 const pool = mysql.createPool({
   uri: process.env.DATABASE_URL,
   waitForConnections: true,
@@ -28,7 +25,6 @@ const pool = mysql.createPool({
 
 console.log('✅ Pool de MySQL configurado correctamente');
 
-// Verificar conexión inicial
 pool.getConnection()
   .then(connection => {
     console.log('✅ Conexión inicial a MySQL exitosa');

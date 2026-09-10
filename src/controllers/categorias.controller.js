@@ -1,21 +1,17 @@
 import pool from '../config/db.js';
 
-// =====================================================
-// LISTAR CATEGORÍAS
-// =====================================================
 export const getCategorias = async (req, res) => {
   try {
     const { incluir_eliminadas } = req.query;
-    
+
     let query = 'SELECT * FROM categorias';
-    
-    // Por defecto solo mostrar activas
+
     if (incluir_eliminadas !== 'true') {
       query += ` WHERE estado = 'activo'`;
     }
-    
+
     query += ' ORDER BY nombre';
-    
+
     const [rows] = await pool.query(query);
     res.json(rows);
   } catch (error) {
@@ -24,9 +20,6 @@ export const getCategorias = async (req, res) => {
   }
 };
 
-// =====================================================
-// CREAR CATEGORÍA
-// =====================================================
 export const createCategoria = async (req, res) => {
   const { nombre } = req.body;
 
@@ -46,9 +39,6 @@ export const createCategoria = async (req, res) => {
   }
 };
 
-// =====================================================
-// ACTUALIZAR CATEGORÍA
-// =====================================================
 export const updateCategoria = async (req, res) => {
   const { id } = req.params;
   const { nombre } = req.body;
@@ -74,9 +64,6 @@ export const updateCategoria = async (req, res) => {
   }
 };
 
-// =====================================================
-// ELIMINAR CATEGORÍA (SOFT DELETE)
-// =====================================================
 export const deleteCategoria = async (req, res) => {
   const { id } = req.params;
 
@@ -97,9 +84,6 @@ export const deleteCategoria = async (req, res) => {
   }
 };
 
-// =====================================================
-// RESTAURAR CATEGORÍA
-// =====================================================
 export const restaurarCategoria = async (req, res) => {
   const { id } = req.params;
 
