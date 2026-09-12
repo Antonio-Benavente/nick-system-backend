@@ -6,21 +6,23 @@ import {
 
   getReportes,
   getReporteByUuid,
-  updateReporte,
-
+  updateReporte
+} from '../controllers/admin.controller.js';
+import {
   getClaves,
   createClave,
   updateClave,
   deleteClave,
-  restaurarClave,
-
+  restaurarClave
+} from '../controllers/claves.controller.js';
+import {
   getTecnicos,
   getTecnicoByUuid,
   createTecnico,
   updateTecnico,
   deleteTecnico,
   restaurarTecnico
-} from '../controllers/admin.controller.js';
+} from '../controllers/tecnicos.controller.js';
 import {
   getClientes,
   getClienteByUuid,

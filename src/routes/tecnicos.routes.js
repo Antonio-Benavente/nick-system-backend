@@ -5,7 +5,7 @@ import {
   getMisEstadisticas,
   createReporte,
   updateReporte
-} from '../controllers/tecnicos.controller.js';
+} from '../controllers/tecnico.controller.js';
 import {
   getClientes
 } from '../controllers/clientes.controller.js';

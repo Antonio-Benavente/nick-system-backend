@@ -132,17 +132,18 @@ export const validateReporteUpdate = (data) => {
 
 const CLAVE_LIMITS = {
   empresa: 150,
-  tipo: 7,
+  tipo: 10,
   usuario: 100,
   password: 30,
+  pc: 100,
+  anydesk: 100,
 };
 
-export const CLAVE_TIPOS = ['correo', 'pc', 'anydesk'];
+export const CLAVE_TIPOS = ['correo', 'pc_anydesk'];
 
 export const CLAVE_TIPO_LABELS = {
   correo: 'correo',
-  pc: 'nombre de PC',
-  anydesk: 'ID de AnyDesk',
+  pc_anydesk: 'PC y AnyDesk',
 };
 
 export const validateClave = (data) => {
@@ -161,24 +162,24 @@ export const validateClave = (data) => {
 
   if (!data.tipo || !CLAVE_TIPOS.includes(data.tipo)) {
     throw new ValidationError(
-      "Tipo es requerido y debe ser correo, pc o anydesk",
+      "Tipo es requerido y debe ser correo o pc_anydesk",
       "tipo",
     );
   }
 
-  if (!data.usuario || data.usuario.trim().length < 2) {
-    throw new ValidationError(
-      `El ${CLAVE_TIPO_LABELS[data.tipo]} es requerido y debe tener al menos 2 caracteres`,
-      "usuario",
-    );
-  }
-  if (data.usuario.length > CLAVE_LIMITS.usuario) {
-    throw new ValidationError(
-      `El ${CLAVE_TIPO_LABELS[data.tipo]} no puede exceder ${CLAVE_LIMITS.usuario} caracteres`,
-      "usuario",
-    );
-  }
   if (data.tipo === 'correo') {
+    if (!data.usuario || data.usuario.trim().length < 2) {
+      throw new ValidationError(
+        "El correo es requerido y debe tener al menos 2 caracteres",
+        "usuario",
+      );
+    }
+    if (data.usuario.trim().length > CLAVE_LIMITS.usuario) {
+      throw new ValidationError(
+        `El correo no puede exceder ${CLAVE_LIMITS.usuario} caracteres`,
+        "usuario",
+      );
+    }
     try {
       validateEmail(data.usuario);
     } catch (e) {
@@ -187,16 +188,61 @@ export const validateClave = (data) => {
       }
       throw e;
     }
-  }
-
-  if (!data.password || data.password.length === 0) {
-    throw new ValidationError("Password es requerido", "password");
-  }
-  if (data.password.length > CLAVE_LIMITS.password) {
-    throw new ValidationError(
-      `Password no puede exceder ${CLAVE_LIMITS.password} caracteres`,
-      "password",
-    );
+    if (!data.password || data.password.length === 0) {
+      throw new ValidationError("Password es requerido", "password");
+    }
+    if (data.password.length > CLAVE_LIMITS.password) {
+      throw new ValidationError(
+        `Password no puede exceder ${CLAVE_LIMITS.password} caracteres`,
+        "password",
+      );
+    }
+  } else {
+    if (!data.pc || data.pc.trim().length < 2) {
+      throw new ValidationError(
+        "El nombre de PC es requerido y debe tener al menos 2 caracteres",
+        "pc",
+      );
+    }
+    if (data.pc.trim().length > CLAVE_LIMITS.pc) {
+      throw new ValidationError(
+        `El nombre de PC no puede exceder ${CLAVE_LIMITS.pc} caracteres`,
+        "pc",
+      );
+    }
+    if (!data.anydesk || data.anydesk.trim().length < 2) {
+      throw new ValidationError(
+        "El ID de AnyDesk es requerido y debe tener al menos 2 caracteres",
+        "anydesk",
+      );
+    }
+    if (data.anydesk.trim().length > CLAVE_LIMITS.anydesk) {
+      throw new ValidationError(
+        `El ID de AnyDesk no puede exceder ${CLAVE_LIMITS.anydesk} caracteres`,
+        "anydesk",
+      );
+    }
+    if (!data.pc_password || data.pc_password.length === 0) {
+      throw new ValidationError("El password de PC es requerido", "pc_password");
+    }
+    if (data.pc_password.length > CLAVE_LIMITS.password) {
+      throw new ValidationError(
+        `El password de PC no puede exceder ${CLAVE_LIMITS.password} caracteres`,
+        "pc_password",
+      );
+    }
+    if (!data.anydesk_password || data.anydesk_password.length === 0) {
+      throw new ValidationError(
+        "El password de AnyDesk es requerido",
+        "anydesk_password",
+      );
+    }
+    if (data.anydesk_password.length > CLAVE_LIMITS.password) {
+      throw new ValidationError(
+        `El password de AnyDesk no puede exceder ${CLAVE_LIMITS.password} caracteres`,
+        "anydesk_password",
+      );
+    }
   }
 
   return true;

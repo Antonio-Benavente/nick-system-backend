@@ -3,7 +3,7 @@
 -- ============================================
 -- Versión: 3.0 — sincronizado con BD producción
 -- SGBD: MySQL 8.0+ / MariaDB 10.6+
--- Fuente: Nicksystem.sql (dump producción 2026-08-20)
+-- Fuente: Nicksyst_db (dump producción 2026-09-12)
 -- ============================================
 
 SET NAMES utf8mb4;
@@ -157,13 +157,17 @@ CREATE TABLE IF NOT EXISTS reporte_evidencias (
 CREATE TABLE IF NOT EXISTS claves (
   id INT AUTO_INCREMENT PRIMARY KEY,
   empresa VARCHAR(150) NOT NULL,
-  tipo ENUM('correo', 'pc', 'anydesk') NOT NULL,
-  usuario VARCHAR(100) NOT NULL,
-  password VARCHAR(30) NOT NULL,
+  tipo ENUM('correo', 'pc_anydesk') NOT NULL,
+  usuario VARCHAR(100) DEFAULT NULL,
+  password VARCHAR(30) DEFAULT NULL,
+  pc VARCHAR(100) DEFAULT NULL,
+  pc_password VARCHAR(30) DEFAULT NULL,
+  anydesk VARCHAR(100) DEFAULT NULL,
+  anydesk_password VARCHAR(30) DEFAULT NULL,
   estado ENUM('activo', 'inactivo') DEFAULT 'activo',
   UNIQUE KEY uk_claves_empresa_tipo_usuario (empresa, tipo, usuario),
   KEY idx_estado (estado)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 
 -- ============================================
 -- DATOS INICIALES
@@ -192,6 +196,6 @@ VALUES (
   'pruebas@nicksystem.com',
   '$2a$10$SQ382ScImEnz2yL4zzZkv.NmveD76AEMu975vZwIhvdlCGwLiZ.b.',
   'admin',
-  'Nick System'
+  'NickSystem'
 )
 ON DUPLICATE KEY UPDATE email = VALUES(email);

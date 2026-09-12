@@ -30,7 +30,7 @@ class EmailService {
       const html = this.generarHTMLCorreo(reporte, clienteNombre, clienteEmpresa);
 
       const { data, error } = await this.resend.emails.send({
-        from: process.env.EMAIL_FROM || 'Nick System <pruebas@nicksystem.com>',
+        from: process.env.EMAIL_FROM || 'Nick System <soporte@nicksystem.com>',
         to: [clienteEmail],
         subject: `📋 Reporte de Servicio - ${reporte.categoria}`,
         html: html,
@@ -236,13 +236,13 @@ class EmailService {
             </div>
 
             <div style="text-align: center; margin: 30px 0; color: #64748b; font-size: 14px;">
-              <p>¿Problemas? <a href="mailto:pruebas@nicksystem.com" style="color: #3b82f6;">Contacte a soporte</a></p>
+              <p>¿Problemas? <a href="mailto:soporte@nicksystem.com" style="color: #3b82f6;">Contacte a soporte</a></p>
             </div>
           </div>
 
           <div class="footer">
             <p><strong>Nick System</strong> - Sistema de Gestión de Servicios Técnicos</p>
-            <p>Lima, Perú | 📞 +51 932 473 318 | 📧 pruebas@nicksystem.com</p>
+            <p>Lima, Perú | 📞 +51 932 473 318 | 📧 soporte@nicksystem.com</p>
             <p>© ${new Date().getFullYear()} Nick System. Todos los derechos reservados.</p>
             <p style="font-size: 12px; margin-top: 20px; color: #94a3b8;">
               Este es un mensaje automático. No responda a este correo.

@@ -1,15 +1,47 @@
-import pool from "../config/db.js";
-import { v4 as uuidv4 } from "uuid";
-import { validateReporte, validateReporteUpdate, ValidationError } from "../validators/validators.js";
-import { attachEvidencias } from "../services/evidencias.service.js";
-import { getTecnicoByUserId } from "../services/entidades.service.js";
+import pool from '../config/db.js';
+import bcrypt from 'bcryptjs';
+import { v4 as uuidv4 } from 'uuid';
+import { validateTecnico, ValidationError, validatePassword } from '../validators/validators.js';
 
-export const getMiPerfil = async (req, res) => {
+export const getTecnicos = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const { incluir_inactivos } = req.query;
 
-    const [rows] = await pool.query(
-      `
+    let query = `
+      SELECT
+        t.id,
+        t.uuid,
+        t.nombre,
+        t.email,
+        t.telefono,
+        t.especialidad,
+        t.estado,
+        t.fecha_ingreso,
+        u.id AS user_id,
+        u.email AS user_email
+      FROM tecnicos t
+      INNER JOIN users u ON u.id = t.user_id
+    `;
+
+    if (incluir_inactivos !== 'true') {
+      query += ` WHERE t.estado = 'activo'`;
+    }
+
+    query += ` ORDER BY t.fecha_ingreso DESC`;
+
+    const [rows] = await pool.query(query);
+    res.json(rows);
+  } catch (error) {
+    console.error('Error en getTecnicos:', error);
+    res.status(500).json({ message: 'Error al obtener técnicos' });
+  }
+};
+
+export const getTecnicoByUuid = async (req, res) => {
+  try {
+    const { uuid } = req.params;
+
+    const [rows] = await pool.query(`
       SELECT
         t.id,
         t.uuid,
@@ -24,211 +56,72 @@ export const getMiPerfil = async (req, res) => {
         u.role
       FROM tecnicos t
       INNER JOIN users u ON u.id = t.user_id
-      WHERE t.user_id = ?
-    `,
-      [userId],
-    );
+      WHERE t.uuid = ?
+    `, [uuid]);
 
     if (rows.length === 0) {
-      return res
-        .status(404)
-        .json({ message: "Perfil de técnico no encontrado" });
+      return res.status(404).json({ message: 'Técnico no encontrado' });
     }
 
     res.json(rows[0]);
   } catch (error) {
-    console.error("Error en getMiPerfil:", error);
-    res.status(500).json({ message: "Error al obtener perfil" });
+    console.error('Error en getTecnicoByUuid:', error);
+    res.status(500).json({ message: 'Error al obtener técnico' });
   }
 };
 
-export const getMisReportes = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { incluir_eliminados } = req.query;
-
-    const tecnico = await getTecnicoByUserId(userId);
-
-    if (!tecnico) {
-      return res.status(404).json({ message: "Técnico no encontrado" });
-    }
-
-    let query = `
-      SELECT
-        r.id,
-        r.uuid,
-        r.categoria,
-        r.descripcion,
-        r.fecha,
-        r.modalidad,
-        r.cliente_conforme,
-        r.aprobado_por,
-        r.estado,
-        r.created_at,
-        c.uuid AS cliente_uuid,
-        c.nombre AS cliente_nombre,
-        c.empresa AS cliente_empresa
-      FROM reportes r
-      INNER JOIN clientes c ON c.id = r.cliente_id
-      WHERE r.tecnico_id = ?
-    `;
-
-    const params = [tecnico.id];
-
-    if (incluir_eliminados !== "true") {
-      query += ` AND r.estado = 'activo'`;
-    }
-
-    query += " ORDER BY r.fecha DESC, r.created_at DESC";
-
-    const [reportes] = await pool.query(query, params);
-
-    res.json(await attachEvidencias(reportes));
-  } catch (error) {
-    console.error("Error en getMisReportes:", error);
-    res.status(500).json({ message: "Error al obtener reportes" });
-  }
-};
-
-export const getMisEstadisticas = async (req, res) => {
-  try {
-    const userId = req.user.id;
-
-    const tecnico = await getTecnicoByUserId(userId);
-
-    if (!tecnico) {
-      return res.status(404).json({ message: "Técnico no encontrado" });
-    }
-
-    const [stats] = await pool.query(
-      `
-      SELECT
-        COUNT(*) AS total_reportes,
-        SUM(CASE WHEN cliente_conforme = 'conforme' THEN 1 ELSE 0 END) AS reportes_conformes,
-        SUM(CASE WHEN cliente_conforme = 'no_conforme' THEN 1 ELSE 0 END) AS reportes_no_conformes,
-        SUM(CASE WHEN cliente_conforme = 'por_confirmar' THEN 1 ELSE 0 END) AS reportes_pendientes,
-        SUM(CASE WHEN modalidad = 'presencial' THEN 1 ELSE 0 END) AS reportes_presenciales,
-        SUM(CASE WHEN modalidad = 'remoto' THEN 1 ELSE 0 END) AS reportes_remotos
-      FROM reportes
-      WHERE tecnico_id = ? AND estado = 'activo'
-    `,
-      [tecnico.id],
-    );
-
-    const [reportesPorMes] = await pool.query(
-      `
-      SELECT
-        DATE_FORMAT(fecha, '%Y-%m') AS mes,
-        COUNT(*) AS cantidad
-      FROM reportes
-      WHERE tecnico_id = ?
-        AND estado = 'activo'
-        AND fecha >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
-      GROUP BY DATE_FORMAT(fecha, '%Y-%m')
-      ORDER BY mes DESC
-    `,
-      [tecnico.id],
-    );
-
-    res.json({
-      estadisticas: stats[0],
-      reportes_por_mes: reportesPorMes,
-    });
-  } catch (error) {
-    console.error("Error en getMisEstadisticas:", error);
-    res.status(500).json({ message: "Error al obtener estadísticas" });
-  }
-};
-
-export const createReporte = async (req, res) => {
+export const createTecnico = async (req, res) => {
   const connection = await pool.getConnection();
 
   try {
-    const userId = req.user.id;
-
-    validateReporte(req.body);
+    validateTecnico(req.body);
 
     const {
-      cliente_uuid,
-      categoria,
-      descripcion,
-      fecha,
-      modalidad,
-      evidencias     } = req.body;
+      nombre,
+      email,
+      password,
+      telefono,
+      especialidad
+    } = req.body;
 
     await connection.beginTransaction();
 
-    const tecnico = await getTecnicoByUserId(userId, connection);
-
-    if (!tecnico) {
-      await connection.rollback();
-      return res.status(404).json({ message: 'Técnico no encontrado' });
-    }
-
-    const [cliente] = await connection.query(
-      'SELECT id FROM clientes WHERE uuid = ?',
-      [cliente_uuid]
+    const [existing] = await connection.query(
+      'SELECT id FROM users WHERE email = ?',
+      [email]
     );
 
-    if (cliente.length === 0) {
+    if (existing.length > 0) {
       await connection.rollback();
-      return res.status(404).json({ message: 'Cliente no encontrado' });
+      return res.status(409).json({ message: 'Email ya registrado' });
     }
 
-    const reporteUUID = uuidv4();
-    const clienteConforme = req.body.cliente_conforme || 'por_confirmar';
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const userUUID = uuidv4();
 
-    const [reporteResult] = await connection.query(
-      `INSERT INTO reportes
-       (uuid, cliente_id, tecnico_id, categoria, descripcion, fecha, modalidad,
-        cliente_conforme, aprobado_por, estado)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'activo')`,
-      [
-        reporteUUID,
-        cliente[0].id,
-        tecnico.id,
-        categoria,
-        descripcion,
-        fecha,
-        modalidad,
-        clienteConforme,
-        clienteConforme === 'conforme' || clienteConforme === 'no_conforme'
-          ? req.body.aprobado_por
-          : null
-      ]
+    const [userResult] = await connection.query(
+      `INSERT INTO users (uuid, name, email, password, role)
+       VALUES (?, ?, ?, ?, 'tecnico')`,
+      [userUUID, nombre, email, hashedPassword]
     );
 
-    const reporteId = reporteResult.insertId;
+    const userId = userResult.insertId;
 
-    if (evidencias && Array.isArray(evidencias) && evidencias.length > 0) {
-      for (let i = 0; i < evidencias.length; i++) {
-        const evidencia = evidencias[i];
+    const tecnicoUUID = uuidv4();
 
-        if (!evidencia.url) continue;
-        const evidenciaUUID = uuidv4();
-
-        await connection.query(
-          `INSERT INTO reporte_evidencias
-           (uuid, reporte_id, url, tipo, descripcion, orden)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-          [
-            evidenciaUUID,
-            reporteId,
-            evidencia.url,
-            evidencia.tipo || 'imagen',
-            evidencia.descripcion || null,
-            i + 1
-          ]
-        );
-      }
-    }
+    await connection.query(
+      `INSERT INTO tecnicos
+       (uuid, user_id, nombre, email, telefono, especialidad, estado, fecha_ingreso)
+       VALUES (?, ?, ?, ?, ?, ?, 'activo', CURDATE())`,
+      [tecnicoUUID, userId, nombre, email, telefono || null, especialidad || null]
+    );
 
     await connection.commit();
 
     res.status(201).json({
-      message: 'Reporte creado correctamente',
-      uuid: reporteUUID,
-      evidencias_agregadas: evidencias?.length || 0
+      message: 'Técnico creado correctamente',
+      uuid: tecnicoUUID,
+      user_uuid: userUUID
     });
 
   } catch (error) {
@@ -237,157 +130,77 @@ export const createReporte = async (req, res) => {
     if (error instanceof ValidationError) {
       return res.status(400).json({
         message: error.message,
-        field: error.field,
+        field: error.field
       });
     }
 
-    console.error('Error en createReporte:', error);
-    res.status(500).json({ message: 'Error al crear reporte' });
+    console.error('Error en createTecnico:', error);
+    res.status(500).json({ message: 'Error al crear técnico' });
   } finally {
     connection.release();
   }
 };
 
-export const updateReporte = async (req, res) => {
+export const updateTecnico = async (req, res) => {
+  const { uuid } = req.params;
+  const { nombre, email, telefono, especialidad, password } = req.body;
+
   const connection = await pool.getConnection();
 
   try {
-    const userId = req.user.id;
-    const { reporteUUID } = req.params;
-
-    const fieldsToValidate = { ...req.body };
-    if (fieldsToValidate.evidencias) delete fieldsToValidate.evidencias;
-    validateReporteUpdate(fieldsToValidate);
-
-    const {
-      categoria,
-      descripcion,
-      fecha,
-      modalidad,
-      cliente_conforme,
-      aprobado_por,
-      evidencias     } = req.body;
+    if (password) {
+      validatePassword(password);
+    }
 
     await connection.beginTransaction();
 
-    const tecnico = await getTecnicoByUserId(userId, connection);
+    const [tecnico] = await connection.query(
+      'SELECT user_id FROM tecnicos WHERE uuid = ?',
+      [uuid]
+    );
 
-    if (!tecnico) {
+    if (tecnico.length === 0) {
       await connection.rollback();
       return res.status(404).json({ message: 'Técnico no encontrado' });
     }
 
-    const [reporte] = await connection.query(
-      'SELECT id FROM reportes WHERE uuid = ? AND tecnico_id = ?',
-      [reporteUUID, tecnico.id]
-    );
+    const userId = tecnico[0].user_id;
 
-    if (reporte.length === 0) {
-      await connection.rollback();
-      return res.status(403).json({
-        message: 'No tiene permiso para editar este reporte o el reporte no existe'
-      });
-    }
+    if (email) {
+      const [existing] = await connection.query(
+        'SELECT id FROM users WHERE email = ? AND id != ?',
+        [email, userId]
+      );
 
-    const reporteId = reporte[0].id;
-
-    const updateFields = [];
-    const updateValues = [];
-
-    if (categoria !== undefined) {
-      updateFields.push('categoria = ?');
-      updateValues.push(categoria);
-    }
-    if (descripcion !== undefined) {
-      updateFields.push('descripcion = ?');
-      updateValues.push(descripcion);
-    }
-    if (fecha !== undefined) {
-      updateFields.push('fecha = ?');
-      updateValues.push(fecha);
-    }
-    if (modalidad !== undefined) {
-      updateFields.push('modalidad = ?');
-      updateValues.push(modalidad);
-    }
-    if (cliente_conforme !== undefined) {
-      updateFields.push('cliente_conforme = ?');
-      updateValues.push(cliente_conforme);
-    }
-    if (aprobado_por !== undefined) {
-      updateFields.push('aprobado_por = ?');
-      updateValues.push(aprobado_por);
-    }
-
-    if (updateFields.length > 0) {
-      updateFields.push('updated_at = CURRENT_TIMESTAMP');
-      updateValues.push(reporteId);
+      if (existing.length > 0) {
+        await connection.rollback();
+        return res.status(409).json({ message: 'Email ya está en uso' });
+      }
 
       await connection.query(
-        `UPDATE reportes SET ${updateFields.join(', ')} WHERE id = ?`,
-        updateValues
+        'UPDATE users SET email = ?, name = ? WHERE id = ?',
+        [email, nombre, userId]
       );
     }
 
-    let evidenciasAgregadas = 0;
-    let evidenciasActualizadas = 0;
-
-    if (evidencias && Array.isArray(evidencias) && evidencias.length > 0) {
-      const [existentes] = await connection.query(
-        'SELECT uuid FROM reporte_evidencias WHERE reporte_id = ?',
-        [reporteId]
+    if (password) {
+      const hashedPassword = await bcrypt.hash(password, 10);
+      await connection.query(
+        'UPDATE users SET password = ? WHERE id = ?',
+        [hashedPassword, userId]
       );
-
-      const existentesUUIDs = new Set(existentes.map(e => e.uuid));
-
-      for (let i = 0; i < evidencias.length; i++) {
-        const evidencia = evidencias[i];
-
-        if (!evidencia.url) continue;
-
-        if (evidencia.uuid && existentesUUIDs.has(evidencia.uuid)) {
-          await connection.query(
-            `UPDATE reporte_evidencias
-             SET url = ?, tipo = ?, descripcion = ?, orden = ?, updated_at = CURRENT_TIMESTAMP
-             WHERE uuid = ? AND reporte_id = ?`,
-            [
-              evidencia.url,
-              evidencia.tipo || 'imagen',
-              evidencia.descripcion || null,
-              i + 1,
-              evidencia.uuid,
-              reporteId
-            ]
-          );
-          evidenciasActualizadas++;
-        } else {
-          const evidenciaUUID = uuidv4();
-          await connection.query(
-            `INSERT INTO reporte_evidencias
-             (uuid, reporte_id, url, tipo, descripcion, orden)
-             VALUES (?, ?, ?, ?, ?, ?)`,
-            [
-              evidenciaUUID,
-              reporteId,
-              evidencia.url,
-              evidencia.tipo || 'imagen',
-              evidencia.descripcion || null,
-              i + 1
-            ]
-          );
-          evidenciasAgregadas++;
-        }
-      }
     }
+
+    await connection.query(
+      `UPDATE tecnicos
+       SET nombre = ?, email = ?, telefono = ?, especialidad = ?
+       WHERE uuid = ?`,
+      [nombre, email, telefono, especialidad, uuid]
+    );
 
     await connection.commit();
 
-    res.json({
-      message: 'Reporte actualizado correctamente',
-      uuid: reporteUUID,
-      evidencias_agregadas: evidenciasAgregadas,
-      evidencias_actualizadas: evidenciasActualizadas
-    });
+    res.json({ message: 'Técnico actualizado correctamente' });
 
   } catch (error) {
     await connection.rollback();
@@ -395,13 +208,53 @@ export const updateReporte = async (req, res) => {
     if (error instanceof ValidationError) {
       return res.status(400).json({
         message: error.message,
-        field: error.field,
+        field: error.field
       });
     }
 
-    console.error('Error en updateReporte:', error);
-    res.status(500).json({ message: 'Error al actualizar reporte' });
+    console.error('Error en updateTecnico:', error);
+    res.status(500).json({ message: 'Error al actualizar técnico' });
   } finally {
     connection.release();
+  }
+};
+
+export const deleteTecnico = async (req, res) => {
+  const { uuid } = req.params;
+
+  try {
+    const [result] = await pool.query(
+      `UPDATE tecnicos SET estado = 'inactivo' WHERE uuid = ?`,
+      [uuid]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: 'Técnico no encontrado' });
+    }
+
+    res.json({ message: 'Técnico inactivado correctamente' });
+  } catch (error) {
+    console.error('Error en deleteTecnico:', error);
+    res.status(500).json({ message: 'Error al inactivar técnico' });
+  }
+};
+
+export const restaurarTecnico = async (req, res) => {
+  const { uuid } = req.params;
+
+  try {
+    const [result] = await pool.query(
+      `UPDATE tecnicos SET estado = 'activo' WHERE uuid = ? AND estado = 'inactivo'`,
+      [uuid]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: 'Técnico no encontrado o ya está activo' });
+    }
+
+    res.json({ message: 'Técnico restaurado correctamente' });
+  } catch (error) {
+    console.error('Error en restaurarTecnico:', error);
+    res.status(500).json({ message: 'Error al restaurar técnico' });
   }
 };
