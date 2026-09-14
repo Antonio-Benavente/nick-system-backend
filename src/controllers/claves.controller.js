@@ -124,6 +124,10 @@ export const updateClave = async (req, res) => {
     }
 
     const existing = rows[0];
+    if (body.tipo !== undefined && body.tipo !== existing.tipo) {
+      return res.status(400).json({ message: 'No se puede cambiar el tipo de la clave' });
+    }
+
     const newEmpresa = body.empresa !== undefined ? body.empresa.trim() : existing.empresa;
     const newTipo = body.tipo !== undefined ? body.tipo : existing.tipo;
     const newNombre = body.nombre !== undefined ? (body.nombre || '').trim() || null : existing.nombre;
