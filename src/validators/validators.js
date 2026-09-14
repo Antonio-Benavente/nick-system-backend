@@ -133,6 +133,7 @@ export const validateReporteUpdate = (data) => {
 const CLAVE_LIMITS = {
   empresa: 150,
   tipo: 10,
+  nombre: 100,
   usuario: 100,
   password: 30,
   pc: 100,
@@ -164,6 +165,17 @@ export const validateClave = (data) => {
     throw new ValidationError(
       "Tipo es requerido y debe ser correo o pc_anydesk",
       "tipo",
+    );
+  }
+
+  if (
+    data.nombre !== undefined &&
+    data.nombre !== null &&
+    data.nombre.trim().length > CLAVE_LIMITS.nombre
+  ) {
+    throw new ValidationError(
+      `El nombre de usuario no puede exceder ${CLAVE_LIMITS.nombre} caracteres`,
+      "nombre",
     );
   }
 
@@ -210,34 +222,19 @@ export const validateClave = (data) => {
         "pc",
       );
     }
-    if (!data.anydesk || data.anydesk.trim().length < 2) {
-      throw new ValidationError(
-        "El ID de AnyDesk es requerido y debe tener al menos 2 caracteres",
-        "anydesk",
-      );
-    }
-    if (data.anydesk.trim().length > CLAVE_LIMITS.anydesk) {
+    if (data.anydesk !== undefined && data.anydesk !== null && data.anydesk.trim().length > CLAVE_LIMITS.anydesk) {
       throw new ValidationError(
         `El ID de AnyDesk no puede exceder ${CLAVE_LIMITS.anydesk} caracteres`,
         "anydesk",
       );
     }
-    if (!data.pc_password || data.pc_password.length === 0) {
-      throw new ValidationError("El password de PC es requerido", "pc_password");
-    }
-    if (data.pc_password.length > CLAVE_LIMITS.password) {
+    if (data.pc_password !== undefined && data.pc_password !== null && data.pc_password.length > CLAVE_LIMITS.password) {
       throw new ValidationError(
         `El password de PC no puede exceder ${CLAVE_LIMITS.password} caracteres`,
         "pc_password",
       );
     }
-    if (!data.anydesk_password || data.anydesk_password.length === 0) {
-      throw new ValidationError(
-        "El password de AnyDesk es requerido",
-        "anydesk_password",
-      );
-    }
-    if (data.anydesk_password.length > CLAVE_LIMITS.password) {
+    if (data.anydesk_password !== undefined && data.anydesk_password !== null && data.anydesk_password.length > CLAVE_LIMITS.password) {
       throw new ValidationError(
         `El password de AnyDesk no puede exceder ${CLAVE_LIMITS.password} caracteres`,
         "anydesk_password",

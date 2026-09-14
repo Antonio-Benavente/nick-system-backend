@@ -10,6 +10,7 @@ export const getClaves = async (req, res) => {
         id,
         empresa,
         tipo,
+        nombre,
         usuario,
         password,
         pc,
@@ -61,6 +62,7 @@ export const createClave = async (req, res) => {
     }
 
     const {
+      nombre,
       usuario,
       password,
       pc,
@@ -70,11 +72,12 @@ export const createClave = async (req, res) => {
     } = req.body;
 
     const [result] = await pool.query(
-      `INSERT INTO claves (empresa, tipo, usuario, password, pc, pc_password, anydesk, anydesk_password, estado)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO claves (empresa, tipo, nombre, usuario, password, pc, pc_password, anydesk, anydesk_password, estado)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         empresaTrim,
         tipo,
+        nombre ? nombre.trim() : null,
         usuario ? usuario.trim() : null,
         password ?? null,
         pc ? pc.trim() : null,
@@ -103,6 +106,7 @@ export const updateClave = async (req, res) => {
     const hasFields =
       body.empresa !== undefined ||
       body.tipo !== undefined ||
+      body.nombre !== undefined ||
       body.usuario !== undefined ||
       body.password !== undefined ||
       body.pc !== undefined ||
@@ -122,6 +126,7 @@ export const updateClave = async (req, res) => {
     const existing = rows[0];
     const newEmpresa = body.empresa !== undefined ? body.empresa.trim() : existing.empresa;
     const newTipo = body.tipo !== undefined ? body.tipo : existing.tipo;
+    const newNombre = body.nombre !== undefined ? (body.nombre || '').trim() || null : existing.nombre;
 
     let validationData;
     let dupQuery;
@@ -133,12 +138,12 @@ export const updateClave = async (req, res) => {
       const newUsuario = body.usuario !== undefined ? body.usuario.trim() : existing.usuario;
       const newPassword = body.password !== undefined ? body.password : existing.password;
 
-      validationData = { empresa: newEmpresa, tipo: newTipo, usuario: newUsuario, password: newPassword };
+      validationData = { empresa: newEmpresa, tipo: newTipo, nombre: newNombre, usuario: newUsuario, password: newPassword };
       dupQuery = 'SELECT id FROM claves WHERE empresa = ? AND tipo = ? AND usuario = ? AND id != ?';
       dupParams = [newEmpresa, newTipo, newUsuario, id];
-      updateQuery = `UPDATE claves SET empresa = ?, tipo = ?, usuario = ?, password = ?,
+      updateQuery = `UPDATE claves SET empresa = ?, tipo = ?, nombre = ?, usuario = ?, password = ?,
           pc = NULL, pc_password = NULL, anydesk = NULL, anydesk_password = NULL WHERE id = ?`;
-      updateParams = [newEmpresa, newTipo, newUsuario, newPassword, id];
+      updateParams = [newEmpresa, newTipo, newNombre, newUsuario, newPassword, id];
     } else {
       const newPc = body.pc !== undefined ? body.pc.trim() : existing.pc;
       const newPcPassword = body.pc_password !== undefined ? body.pc_password : existing.pc_password;
@@ -148,6 +153,7 @@ export const updateClave = async (req, res) => {
       validationData = {
         empresa: newEmpresa,
         tipo: newTipo,
+        nombre: newNombre,
         pc: newPc,
         pc_password: newPcPassword,
         anydesk: newAnydesk,
@@ -155,9 +161,9 @@ export const updateClave = async (req, res) => {
       };
       dupQuery = 'SELECT id FROM claves WHERE empresa = ? AND tipo = ? AND id != ?';
       dupParams = [newEmpresa, newTipo, id];
-      updateQuery = `UPDATE claves SET empresa = ?, tipo = ?, pc = ?, pc_password = ?, anydesk = ?, anydesk_password = ?,
+      updateQuery = `UPDATE claves SET empresa = ?, tipo = ?, nombre = ?, pc = ?, pc_password = ?, anydesk = ?, anydesk_password = ?,
           usuario = NULL, password = NULL WHERE id = ?`;
-      updateParams = [newEmpresa, newTipo, newPc, newPcPassword, newAnydesk, newAnydeskPassword, id];
+      updateParams = [newEmpresa, newTipo, newNombre, newPc, newPcPassword, newAnydesk, newAnydeskPassword, id];
     }
 
     validateClave(validationData);

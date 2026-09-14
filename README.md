@@ -201,15 +201,15 @@ Campos de `PUT /admin/reportes/:uuid`: `categoria`, `descripcion`, `fecha` (YYYY
 
 Las claves son de dos tipos, definidos por `tipo`:
 
-- **`correo`**: `empresa` (≤150), `usuario` (≤100, email válido), `password` (≤30). Pueden existir varios correos por empresa.
-- **`pc_anydesk`**: `empresa` (≤150), `pc` (≤100), `pc_password` (≤30), `anydesk` (≤100), `anydesk_password` (≤30). **Solo una por empresa** (duplicado → 409).
+- **`correo`**: `empresa` (≤150), `nombre` (≤100, opcional), `usuario` (≤100, email válido), `password` (≤30). Pueden existir varios correos por empresa.
+- **`pc_anydesk`**: `empresa` (≤150), `nombre` (≤100, opcional), `pc` (≤100), `pc_password` (≤30, opcional), `anydesk` (≤100, opcional), `anydesk_password` (≤30, opcional). **Solo una por empresa** (duplicado → 409).
 
 ```json
-{ "empresa": "Acme", "tipo": "correo", "usuario": "soporte@acme.com", "password": "secreto" }
+{ "empresa": "Acme", "tipo": "correo", "nombre": "María Pérez", "usuario": "soporte@acme.com", "password": "secreto" }
 ```
 
 ```json
-{ "empresa": "Acme", "tipo": "pc_anydesk", "pc": "PC-ACME-01", "pc_password": "1234", "anydesk": "123456789", "anydesk_password": "abcd" }
+{ "empresa": "Acme", "tipo": "pc_anydesk", "nombre": "Juan Gómez", "pc": "PC-ACME-01", "pc_password": "1234", "anydesk": "123456789", "anydesk_password": "abcd" }
 ```
 
 #### Técnicos
