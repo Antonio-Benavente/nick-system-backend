@@ -35,6 +35,7 @@ const [[ticket]] = await pool.query(
 console.log('Ticket creado:');
 console.table([ticket]);
 console.log('Acuse correo:', resultado.acuse);
+console.log('Notificación interna:', resultado.notificacion);
 
 await pool.end();
 process.exitCode = resultado.acuse && resultado.acuse.success ? 0 : 1;

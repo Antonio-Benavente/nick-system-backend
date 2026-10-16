@@ -105,7 +105,7 @@ const esAutomatico = (correo, email) => {
 };
 
 export const ingestarCorreo = async (correo) => {
-  const { nombre, email } = parsearRemitente(correo.from);
+  const { nombre: nombreRemitente, email } = parsearRemitente(correo.from);
 
   if (esAutomatico(correo, email)) {
     return { creado: false, ignorado: true };
@@ -114,28 +114,47 @@ export const ingestarCorreo = async (correo) => {
   const cuerpo = correo.text ? correo.text.trim() : htmlATexto(correo.html);
   const destino = email || (Array.isArray(correo.to) ? correo.to[0] : correo.to) || '';
 
+  const empresa = empresaDesdeCorreo(email);
+  const nombre = recortar(nombreRemitente, LIMITES.nombre) || recortar(email.split('@')[0], LIMITES.nombre) || 'Remitente';
+  const asunto = recortar(correo.subject, LIMITES.asunto) || 'Solicitud por correo';
+  const descripcion = recortar(cuerpo, LIMITES.descripcion) || 'Sin descripción';
+  const contactoOrigen = recortar(destino, LIMITES.empresa) || null;
+
   const ticket = await registrar({
-    empresa: empresaDesdeCorreo(email),
-    nombre: recortar(nombre, LIMITES.nombre) || recortar(email.split('@')[0], LIMITES.nombre) || 'Remitente',
-    asunto: recortar(correo.subject, LIMITES.asunto) || 'Solicitud por correo',
-    descripcion: recortar(cuerpo, LIMITES.descripcion) || 'Sin descripción',
+    empresa,
+    nombre,
+    asunto,
+    descripcion,
     canal: 'correo',
-    contactoOrigen: recortar(destino, LIMITES.empresa) || null,
+    contactoOrigen,
     mensajeExternoId: correo.id || null
   });
 
-  if (ticket.creado && email) {
-    const acuse = await emailService.enviarAcuseTicket({
-      to: email,
-      nombre: recortar(nombre, LIMITES.nombre),
-      codigo: ticket.codigo,
-      url: urlSeguimiento(ticket.uuid)
-    });
+  if (!ticket.creado) return ticket;
 
-    return { ...ticket, acuse };
-  }
+  const urlTicket = urlSeguimiento(ticket.uuid);
 
-  return ticket;
+  const notificacion = await emailService.enviarNotificacionTicketInterna({
+    empresa,
+    nombre,
+    asunto,
+    descripcion,
+    canal: 'correo',
+    contactoOrigen,
+    codigo: ticket.codigo,
+    url: urlTicket
+  });
+
+  if (!email) return { ...ticket, notificacion };
+
+  const acuse = await emailService.enviarAcuseTicket({
+    to: email,
+    nombre,
+    codigo: ticket.codigo,
+    url: urlTicket
+  });
+
+  return { ...ticket, acuse, notificacion };
 };
 
 const contenidoWhatsapp = (mensaje) => {

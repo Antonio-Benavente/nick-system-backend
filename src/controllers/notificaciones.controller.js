@@ -21,7 +21,8 @@ export const verificarConfiguracion = async (req, res) => {
   const config = {
     resend_configured: Boolean(process.env.RESEND_API_KEY),
     email_from: process.env.EMAIL_FROM || 'No configurado',
-    frontend_url: process.env.FRONTEND_URL || 'No configurado'
+    frontend_url: process.env.FRONTEND_URL || 'No configurado',
+    ticket_notificacion_email: process.env.TICKET_NOTIFICACION_EMAIL || 'Desactivada'
   };
 
   if (!config.resend_configured) {

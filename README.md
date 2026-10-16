@@ -64,6 +64,7 @@ WHATSAPP_GRAPH_VERSION=v25.0
 WHATSAPP_CONVERSACION_MINUTOS=30
 TICKET_EMPRESA_CORREO=G
 TICKET_EMPRESA_WHATSAPP=WhatsApp
+TICKET_NOTIFICACION_EMAIL=
 ```
 
 | Variable | Notas |
@@ -86,6 +87,7 @@ TICKET_EMPRESA_WHATSAPP=WhatsApp
 | `WHATSAPP_CONVERSACION_MINUTOS` | Minutos que se espera la respuesta con los datos antes de volver a pedirla (default 30) |
 | `TICKET_EMPRESA_CORREO` | `empresa_solicitante` por defecto cuando el correo viene de un proveedor gratuito (Gmail, Hotmail, etc.). Solo importa su inicial para el código |
 | `TICKET_EMPRESA_WHATSAPP` | `empresa_solicitante` por defecto cuando el mensaje de WhatsApp no incluye empresa |
+| `TICKET_NOTIFICACION_EMAIL` | Destinatarios del correo interno con el detalle de cada ticket entrante (separados por comas). **Vacía = no se envía nada** |
 
 Referencia completa en `.env.example`.
 
@@ -484,6 +486,20 @@ Al crear el ticket se envía un acuse con el código y el enlace `{FRONTEND_URL}
 > El acuse de WhatsApp usa **texto libre**, que Meta solo entrega dentro de la **ventana de 24 h** abierta por el cliente. Fuera de esa ventana Meta responde `success: true` pero no entrega. Las plantillas aprobadas siempre funcionan.
 
 Si el acuse falla, el ticket **ya quedó creado** y se registra un `console.warn`.
+
+### Notificación interna del ticket
+
+Además del acuse al cliente, se puede enviar un correo con el detalle del ticket (empresa, nombre, contacto, asunto y descripción) a una o varias direcciones internas:
+
+```env
+TICKET_NOTIFICACION_EMAIL=admin@nicksystem.com, tecnico@nicksystem.com
+```
+
+- Método: `emailService.enviarNotificacionTicketInterna`. Asunto `Nuevo ticket por correo - TK-GA0006`.
+- Si la variable está **vacía** no se envía nada y no se registra ningún error (queda `omitido: true`).
+- Si el envío falla, **nunca** interrumpe la ingesta: el ticket ya quedó creado y solo se loguea con `console.error`. Un fallo aquí no hace que el webhook devuelva 500 ni que Resend reintente la entrega.
+- Por ahora solo se dispara en el canal **correo**. Para WhatsApp basta llamar al mismo método en `ingestarWhatsapp` con `canal: 'whatsapp'`.
+- Cuenta contra la misma cuota de Resend que el acuse: **2 envíos por ticket entrante**.
 
 ### Pruebas locales sin túnel
 
