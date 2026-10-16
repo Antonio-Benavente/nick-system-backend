@@ -1,67 +1,45 @@
 import pool from '../config/db.js';
-import { validateClave, ValidationError } from '../validators/validators.js';
+import { validateClave } from '../validators/validators.js';
+import { abortar } from '../middlewares/error.middleware.js';
+import { registrarAuditoriaClave } from '../services/auditoria.service.js';
+import { leerPaginacion, cabeceraPaginacion, contar } from '../services/paginacion.service.js';
+
+const DUPLICADO_CORREO = 'Ya existe un correo con ese valor en esa empresa';
+const DUPLICADO_PC = 'Ya existe una credencial de PC y AnyDesk para esa empresa';
 
 export const getClaves = async (req, res) => {
-  try {
-    const { incluir_inactivos } = req.query;
+  const { incluir_inactivos } = req.query;
+  const paginacion = leerPaginacion(req.query);
 
-    let query = `
-      SELECT
-        id,
-        empresa,
-        tipo,
-        nombre,
-        usuario,
-        password,
-        pc,
-        pc_password,
-        anydesk,
-        anydesk_password,
-        estado
-      FROM claves
-    `;
+  await registrarAuditoriaClave(req, 'consulta');
 
-    if (incluir_inactivos !== 'true') {
-      query += ` WHERE estado = 'activo'`;
-    }
+  const condiciones = [];
+  const params = [];
 
-    query += ` ORDER BY empresa`;
-
-    const [rows] = await pool.query(query);
-    res.json(rows);
-  } catch (error) {
-    console.error('Error en getClaves:', error);
-    res.status(500).json({ message: 'Error al obtener la tabla claves' });
+  if (incluir_inactivos !== 'true') {
+    condiciones.push('estado = ?');
+    params.push('activo');
   }
-};
 
-export const createClave = async (req, res) => {
-  const { empresa, tipo } = req.body;
+  if (req.query.buscar) {
+    condiciones.push('(empresa LIKE ? OR usuario LIKE ? OR pc LIKE ?)');
+    const patron = `%${String(req.query.buscar).trim().slice(0, 100)}%`;
+    params.push(patron, patron, patron);
+  }
 
-  try {
-    validateClave(req.body);
+  const donde = condiciones.length ? `WHERE ${condiciones.join(' AND ')}` : '';
 
-    const empresaTrim = empresa.trim();
+  if (paginacion.activa) {
+    const total = await contar(pool, `SELECT COUNT(*) AS total FROM claves ${donde}`, params);
+    cabeceraPaginacion(res, { total, ...paginacion });
+  }
 
-    if (tipo === 'correo') {
-      const [dup] = await pool.query(
-        'SELECT id FROM claves WHERE empresa = ? AND tipo = ? AND usuario = ?',
-        [empresaTrim, tipo, req.body.usuario.trim()]
-      );
-      if (dup.length > 0) {
-        return res.status(409).json({ message: 'Ya existe un correo con ese valor en esa empresa' });
-      }
-    } else {
-      const [dup] = await pool.query(
-        'SELECT id FROM claves WHERE empresa = ? AND tipo = ?',
-        [empresaTrim, tipo]
-      );
-      if (dup.length > 0) {
-        return res.status(409).json({ message: 'Ya existe una credencial de PC y AnyDesk para esa empresa' });
-      }
-    }
-
-    const {
+  const [rows] = await pool.query(
+    `
+    SELECT
+      id,
+      empresa,
+      tipo,
       nombre,
       usuario,
       password,
@@ -69,163 +47,207 @@ export const createClave = async (req, res) => {
       pc_password,
       anydesk,
       anydesk_password,
-    } = req.body;
+      estado
+    FROM claves
+    ${donde}
+    ORDER BY empresa
+    LIMIT ? OFFSET ?
+  `,
+    [...params, paginacion.limite, paginacion.offset]
+  );
 
-    const [result] = await pool.query(
-      `INSERT INTO claves (empresa, tipo, nombre, usuario, password, pc, pc_password, anydesk, anydesk_password, estado)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        empresaTrim,
-        tipo,
-        nombre ? nombre.trim() : null,
-        usuario ? usuario.trim() : null,
-        password ?? null,
-        pc ? pc.trim() : null,
-        pc_password ?? null,
-        anydesk ? anydesk.trim() : null,
-        anydesk_password ?? null,
-        'activo',
-      ]
-    );
+  res.json(rows);
+};
 
-    res.status(201).json({ message: 'Clave creada correctamente', id: result.insertId });
-  } catch (error) {
-    if (error instanceof ValidationError) {
-      return res.status(400).json({ message: error.message, field: error.field });
-    }
-    console.error('Error en createClave:', error);
-    res.status(500).json({ message: 'Error al crear la clave' });
+export const createClave = async (req, res) => {
+  validateClave(req.body);
+
+  const {
+    empresa,
+    tipo,
+    nombre,
+    usuario,
+    password,
+    pc,
+    pc_password,
+    anydesk,
+    anydesk_password,
+  } = req.body;
+
+  const empresaTrim = empresa.trim();
+
+  const [dup] = tipo === 'correo'
+    ? await pool.query(
+        'SELECT id FROM claves WHERE empresa = ? AND tipo = ? AND usuario = ?',
+        [empresaTrim, tipo, usuario.trim()]
+      )
+    : await pool.query(
+        'SELECT id FROM claves WHERE empresa = ? AND tipo = ?',
+        [empresaTrim, tipo]
+      );
+
+  if (dup.length > 0) {
+    throw abortar(409, tipo === 'correo' ? DUPLICADO_CORREO : DUPLICADO_PC);
   }
+
+  const [result] = await pool.query(
+    `INSERT INTO claves (empresa, tipo, nombre, usuario, password, pc, pc_password, anydesk, anydesk_password, estado)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      empresaTrim,
+      tipo,
+      nombre ? nombre.trim() : null,
+      usuario ? usuario.trim() : null,
+      password ?? null,
+      pc ? pc.trim() : null,
+      pc_password ?? null,
+      anydesk ? anydesk.trim() : null,
+      anydesk_password ?? null,
+      'activo',
+    ]
+  );
+
+  res.status(201).json({ message: 'Clave creada correctamente', id: result.insertId });
+
+  await registrarAuditoriaClave(req, 'creacion');
 };
 
 export const updateClave = async (req, res) => {
   const { id } = req.params;
   const body = req.body;
 
-  try {
-    const hasFields =
-      body.empresa !== undefined ||
-      body.tipo !== undefined ||
-      body.nombre !== undefined ||
-      body.usuario !== undefined ||
-      body.password !== undefined ||
-      body.pc !== undefined ||
-      body.pc_password !== undefined ||
-      body.anydesk !== undefined ||
-      body.anydesk_password !== undefined;
+  const CAMPOS = [
+    'empresa',
+    'tipo',
+    'nombre',
+    'usuario',
+    'password',
+    'pc',
+    'pc_password',
+    'anydesk',
+    'anydesk_password'
+  ];
 
-    if (!hasFields) {
-      return res.status(400).json({ message: 'No se proporcionaron campos para actualizar' });
-    }
-
-    const [rows] = await pool.query('SELECT * FROM claves WHERE id = ?', [id]);
-    if (rows.length === 0) {
-      return res.status(404).json({ message: 'Clave no encontrada' });
-    }
-
-    const existing = rows[0];
-    if (body.tipo !== undefined && body.tipo !== existing.tipo) {
-      return res.status(400).json({ message: 'No se puede cambiar el tipo de la clave' });
-    }
-
-    const newEmpresa = body.empresa !== undefined ? body.empresa.trim() : existing.empresa;
-    const newTipo = body.tipo !== undefined ? body.tipo : existing.tipo;
-    const newNombre = body.nombre !== undefined ? (body.nombre || '').trim() || null : existing.nombre;
-
-    let validationData;
-    let dupQuery;
-    let dupParams;
-    let updateQuery;
-    let updateParams;
-
-    if (newTipo === 'correo') {
-      const newUsuario = body.usuario !== undefined ? body.usuario.trim() : existing.usuario;
-      const newPassword = body.password !== undefined ? body.password : existing.password;
-
-      validationData = { empresa: newEmpresa, tipo: newTipo, nombre: newNombre, usuario: newUsuario, password: newPassword };
-      dupQuery = 'SELECT id FROM claves WHERE empresa = ? AND tipo = ? AND usuario = ? AND id != ?';
-      dupParams = [newEmpresa, newTipo, newUsuario, id];
-      updateQuery = `UPDATE claves SET empresa = ?, tipo = ?, nombre = ?, usuario = ?, password = ?,
-          pc = NULL, pc_password = NULL, anydesk = NULL, anydesk_password = NULL WHERE id = ?`;
-      updateParams = [newEmpresa, newTipo, newNombre, newUsuario, newPassword, id];
-    } else {
-      const newPc = body.pc !== undefined ? body.pc.trim() : existing.pc;
-      const newPcPassword = body.pc_password !== undefined ? body.pc_password : existing.pc_password;
-      const newAnydesk = body.anydesk !== undefined ? body.anydesk.trim() : existing.anydesk;
-      const newAnydeskPassword = body.anydesk_password !== undefined ? body.anydesk_password : existing.anydesk_password;
-
-      validationData = {
-        empresa: newEmpresa,
-        tipo: newTipo,
-        nombre: newNombre,
-        pc: newPc,
-        pc_password: newPcPassword,
-        anydesk: newAnydesk,
-        anydesk_password: newAnydeskPassword,
-      };
-      dupQuery = 'SELECT id FROM claves WHERE empresa = ? AND tipo = ? AND id != ?';
-      dupParams = [newEmpresa, newTipo, id];
-      updateQuery = `UPDATE claves SET empresa = ?, tipo = ?, nombre = ?, pc = ?, pc_password = ?, anydesk = ?, anydesk_password = ?,
-          usuario = NULL, password = NULL WHERE id = ?`;
-      updateParams = [newEmpresa, newTipo, newNombre, newPc, newPcPassword, newAnydesk, newAnydeskPassword, id];
-    }
-
-    validateClave(validationData);
-
-    const [dup] = await pool.query(dupQuery, dupParams);
-    if (dup.length > 0) {
-      const label = newTipo === 'correo' ? 'Ya existe un correo con ese valor en esa empresa' : 'Ya existe una credencial de PC y AnyDesk para esa empresa';
-      return res.status(409).json({ message: label });
-    }
-
-    await pool.query(updateQuery, updateParams);
-
-    res.json({ message: 'Clave actualizada correctamente' });
-  } catch (error) {
-    if (error instanceof ValidationError) {
-      return res.status(400).json({ message: error.message, field: error.field });
-    }
-    console.error('Error en updateClave:', error);
-    res.status(500).json({ message: 'Error al actualizar la clave' });
+  if (!CAMPOS.some((campo) => body[campo] !== undefined)) {
+    throw abortar(400, 'No se proporcionaron campos para actualizar');
   }
+
+  const [rows] = await pool.query(
+    'SELECT id, empresa, tipo, nombre, usuario, password, pc, pc_password, anydesk, anydesk_password FROM claves WHERE id = ?',
+    [id]
+  );
+
+  if (rows.length === 0) {
+    throw abortar(404, 'Clave no encontrada');
+  }
+
+  const existing = rows[0];
+
+  if (body.tipo !== undefined && body.tipo !== existing.tipo) {
+    throw abortar(400, 'No se puede cambiar el tipo de la clave');
+  }
+
+  const nuevaEmpresa = body.empresa !== undefined ? body.empresa.trim() : existing.empresa;
+  const nuevoNombre = body.nombre !== undefined
+    ? (body.nombre || '').trim() || null
+    : existing.nombre;
+
+  let validationData;
+  let dupQuery;
+  let dupParams;
+  let updateQuery;
+  let updateParams;
+
+  if (existing.tipo === 'correo') {
+    const nuevoUsuario = body.usuario !== undefined ? body.usuario.trim() : existing.usuario;
+    const nuevoPassword = body.password !== undefined ? body.password : existing.password;
+
+    validationData = {
+      empresa: nuevaEmpresa,
+      tipo: existing.tipo,
+      nombre: nuevoNombre,
+      usuario: nuevoUsuario,
+      password: nuevoPassword
+    };
+    dupQuery = 'SELECT id FROM claves WHERE empresa = ? AND tipo = ? AND usuario = ? AND id != ?';
+    dupParams = [nuevaEmpresa, existing.tipo, nuevoUsuario, id];
+    updateQuery = `UPDATE claves SET empresa = ?, tipo = ?, nombre = ?, usuario = ?, password = ?,
+        pc = NULL, pc_password = NULL, anydesk = NULL, anydesk_password = NULL WHERE id = ?`;
+    updateParams = [nuevaEmpresa, existing.tipo, nuevoNombre, nuevoUsuario, nuevoPassword, id];
+  } else {
+    const nuevoPc = body.pc !== undefined ? body.pc.trim() : existing.pc;
+    const nuevoPcPassword = body.pc_password !== undefined ? body.pc_password : existing.pc_password;
+    const nuevoAnydesk = body.anydesk !== undefined ? body.anydesk.trim() : existing.anydesk;
+    const nuevoAnydeskPassword = body.anydesk_password !== undefined
+      ? body.anydesk_password
+      : existing.anydesk_password;
+
+    validationData = {
+      empresa: nuevaEmpresa,
+      tipo: existing.tipo,
+      nombre: nuevoNombre,
+      pc: nuevoPc,
+      pc_password: nuevoPcPassword,
+      anydesk: nuevoAnydesk,
+      anydesk_password: nuevoAnydeskPassword
+    };
+    dupQuery = 'SELECT id FROM claves WHERE empresa = ? AND tipo = ? AND id != ?';
+    dupParams = [nuevaEmpresa, existing.tipo, id];
+    updateQuery = `UPDATE claves SET empresa = ?, tipo = ?, nombre = ?, pc = ?, pc_password = ?, anydesk = ?, anydesk_password = ?,
+        usuario = NULL, password = NULL WHERE id = ?`;
+    updateParams = [
+      nuevaEmpresa,
+      existing.tipo,
+      nuevoNombre,
+      nuevoPc,
+      nuevoPcPassword,
+      nuevoAnydesk,
+      nuevoAnydeskPassword,
+      id
+    ];
+  }
+
+  validateClave(validationData);
+
+  const [dup] = await pool.query(dupQuery, dupParams);
+
+  if (dup.length > 0) {
+    throw abortar(409, existing.tipo === 'correo' ? DUPLICADO_CORREO : DUPLICADO_PC);
+  }
+
+  await pool.query(updateQuery, updateParams);
+
+  res.json({ message: 'Clave actualizada correctamente' });
+
+  await registrarAuditoriaClave(req, 'actualizacion');
 };
 
 export const deleteClave = async (req, res) => {
-  const { id } = req.params;
+  const [result] = await pool.query(
+    `UPDATE claves SET estado = 'inactivo' WHERE id = ?`,
+    [req.params.id]
+  );
 
-  try {
-    const [result] = await pool.query(
-      `UPDATE claves SET estado = 'inactivo' WHERE id = ?`,
-      [id]
-    );
-
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ message: 'Clave no encontrada' });
-    }
-
-    res.json({ message: 'Clave inactivada correctamente' });
-  } catch (error) {
-    console.error('Error en deleteClave:', error);
-    res.status(500).json({ message: 'Error al inactivar la clave' });
+  if (result.affectedRows === 0) {
+    throw abortar(404, 'Clave no encontrada');
   }
+
+  res.json({ message: 'Clave inactivada correctamente' });
+
+  await registrarAuditoriaClave(req, 'inactivacion');
 };
 
 export const restaurarClave = async (req, res) => {
-  const { id } = req.params;
+  const [result] = await pool.query(
+    `UPDATE claves SET estado = 'activo' WHERE id = ? AND estado = 'inactivo'`,
+    [req.params.id]
+  );
 
-  try {
-    const [result] = await pool.query(
-      `UPDATE claves SET estado = 'activo' WHERE id = ? AND estado = 'inactivo'`,
-      [id]
-    );
-
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ message: 'Clave no encontrada o ya está activa' });
-    }
-
-    res.json({ message: 'Clave restaurada correctamente' });
-  } catch (error) {
-    console.error('Error en restaurarClave:', error);
-    res.status(500).json({ message: 'Error al restaurar la clave' });
+  if (result.affectedRows === 0) {
+    throw abortar(404, 'Clave no encontrada o ya está activa');
   }
+
+  res.json({ message: 'Clave restaurada correctamente' });
+
+  await registrarAuditoriaClave(req, 'restauracion');
 };

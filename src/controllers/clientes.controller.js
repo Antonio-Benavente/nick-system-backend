@@ -1,119 +1,141 @@
+import { randomUUID } from 'node:crypto';
 import pool from '../config/db.js';
 import bcrypt from 'bcryptjs';
-import { v4 as uuidv4 } from 'uuid';
-import { validateCliente, validatePassword, ValidationError } from '../validators/validators.js';
+import {
+  validateCliente,
+  validateClienteUpdate
+} from '../validators/validators.js';
+import { abortar } from '../middlewares/error.middleware.js';
+import { conTransaccion } from '../services/transaccion.service.js';
+import { leerPaginacion, cabeceraPaginacion, contar } from '../services/paginacion.service.js';
+
+const CAMPOS_CLIENTE = ['nombre', 'empresa', 'email', 'telefono', 'direccion'];
+
+const soloDefinidos = (body, campos) =>
+  campos.reduce((acc, campo) => {
+    if (body[campo] !== undefined) acc[campo] = body[campo];
+    return acc;
+  }, {});
 
 export const getClientes = async (req, res) => {
-  try {
-    const { incluir_inactivos } = req.query;
+  const { incluir_inactivos } = req.query;
+  const paginacion = leerPaginacion(req.query);
 
-    let query = `
-      SELECT
-        c.id,
-        c.uuid,
-        c.nombre,
-        c.empresa,
-        c.email,
-        c.telefono,
-        c.direccion,
-        c.estado,
-        c.fecha_registro,
-        u.id AS user_id,
-        u.email AS user_email
-      FROM clientes c
-      LEFT JOIN users u ON u.id = c.user_id
-    `;
+  const condiciones = [];
+  const params = [];
 
-    if (incluir_inactivos !== 'true') {
-      query += ` WHERE c.estado = 'activo'`;
-    }
-
-    query += ` ORDER BY c.fecha_registro DESC`;
-
-    const [rows] = await pool.query(query);
-    res.json(rows);
-  } catch (error) {
-    console.error('Error en getClientes:', error);
-    res.status(500).json({ message: 'Error al obtener clientes' });
+  if (incluir_inactivos !== 'true') {
+    condiciones.push('c.estado = ?');
+    params.push('activo');
   }
+
+  if (req.query.buscar) {
+    condiciones.push('(c.nombre LIKE ? OR c.empresa LIKE ? OR c.email LIKE ?)');
+    const patron = `%${String(req.query.buscar).trim().slice(0, 100)}%`;
+    params.push(patron, patron, patron);
+  }
+
+  const donde = condiciones.length ? `WHERE ${condiciones.join(' AND ')}` : '';
+
+  if (paginacion.activa) {
+    const total = await contar(
+      pool,
+      `SELECT COUNT(*) AS total FROM clientes c ${donde}`,
+      params
+    );
+    cabeceraPaginacion(res, { total, ...paginacion });
+  }
+
+  const [rows] = await pool.query(
+    `SELECT
+      c.id,
+      c.uuid,
+      c.nombre,
+      c.empresa,
+      c.email,
+      c.telefono,
+      c.direccion,
+      c.estado,
+      c.fecha_registro,
+      u.id AS user_id,
+      u.email AS user_email
+    FROM clientes c
+    LEFT JOIN users u ON u.id = c.user_id
+    ${donde}
+    ORDER BY c.fecha_registro DESC
+    LIMIT ? OFFSET ?`,
+    [...params, paginacion.limite, paginacion.offset]
+  );
+
+  res.json(rows);
 };
 
 export const getClienteByUuid = async (req, res) => {
-  try {
-    const { uuid } = req.params;
+  const [rows] = await pool.query(`
+    SELECT
+      c.id,
+      c.uuid,
+      c.nombre,
+      c.empresa,
+      c.email,
+      c.telefono,
+      c.direccion,
+      c.estado,
+      c.fecha_registro,
+      u.id AS user_id,
+      u.email AS user_email,
+      u.role
+    FROM clientes c
+    LEFT JOIN users u ON u.id = c.user_id
+    WHERE c.uuid = ?
+  `, [req.params.uuid]);
 
-    const [rows] = await pool.query(`
-      SELECT
-        c.id,
-        c.uuid,
-        c.nombre,
-        c.empresa,
-        c.email,
-        c.telefono,
-        c.direccion,
-        c.estado,
-        c.fecha_registro,
-        u.id AS user_id,
-        u.email AS user_email,
-        u.role
-      FROM clientes c
-      LEFT JOIN users u ON u.id = c.user_id
-      WHERE c.uuid = ?
-    `, [uuid]);
-
-    if (rows.length === 0) {
-      return res.status(404).json({ message: 'Cliente no encontrado' });
-    }
-
-    res.json(rows[0]);
-  } catch (error) {
-    console.error('Error en getClienteByUuid:', error);
-    res.status(500).json({ message: 'Error al obtener cliente' });
+  if (rows.length === 0) {
+    throw abortar(404, 'Cliente no encontrado');
   }
+
+  res.json(rows[0]);
 };
 
 export const createCliente = async (req, res) => {
-  const connection = await pool.getConnection();
+  validateCliente(req.body);
 
-  try {
-    validateCliente(req.body);
+  const {
+    nombre,
+    empresa,
+    email,
+    password,
+    telefono,
+    direccion
+  } = req.body;
 
-    const {
-      nombre,
-      empresa,
-      email,
-      password,
-      telefono,
-      direccion
-    } = req.body;
-
-    await connection.beginTransaction();
-
+  const resultado = await conTransaccion(async (connection) => {
     let userId = null;
     let userUUID = null;
+
     if (password) {
       const [existing] = await connection.query(
         'SELECT id FROM users WHERE email = ?',
-        [email]
+        [email.trim()]
       );
 
       if (existing.length > 0) {
-        await connection.rollback();
-        return res.status(409).json({ message: 'Email ya registrado' });
+        throw abortar(409, 'Email ya registrado');
       }
 
       const hashedPassword = await bcrypt.hash(password, 10);
-      userUUID = uuidv4();
+      userUUID = randomUUID();
+
       const [userResult] = await connection.query(
         `INSERT INTO users (uuid, name, email, password, role, empresa)
          VALUES (?, ?, ?, ?, 'cliente', ?)`,
-        [userUUID, nombre, email, hashedPassword, empresa]
+        [userUUID, nombre, email.trim(), hashedPassword, empresa]
       );
 
       userId = userResult.insertId;
     }
 
-    const clienteUUID = uuidv4();
+    const clienteUUID = randomUUID();
 
     await connection.query(
       `INSERT INTO clientes
@@ -122,137 +144,123 @@ export const createCliente = async (req, res) => {
       [clienteUUID, userId, nombre, empresa, email, telefono || null, direccion || null]
     );
 
-    await connection.commit();
+    return { uuid: clienteUUID, user_uuid: userUUID };
+  });
 
-    res.status(201).json({
-      message: 'Cliente creado correctamente',
-      uuid: clienteUUID,
-      user_uuid: userUUID
-    });
-
-  } catch (error) {
-    await connection.rollback();
-    console.error('Error en createCliente:', error);
-    res.status(500).json({ message: 'Error al crear cliente' });
-  } finally {
-    connection.release();
-  }
+  res.status(201).json({
+    message: 'Cliente creado correctamente',
+    ...resultado
+  });
 };
 
 export const updateCliente = async (req, res) => {
   const { uuid } = req.params;
-  const { nombre, empresa, email, telefono, direccion, password } = req.body;
+  const body = soloDefinidos(req.body, [...CAMPOS_CLIENTE, 'password']);
 
-  const connection = await pool.getConnection();
+  validateClienteUpdate(body);
 
-  try {
-    if (password) {
-      validatePassword(password);
-    }
-
-    await connection.beginTransaction();
-
+  await conTransaccion(async (connection) => {
     const [cliente] = await connection.query(
-      'SELECT user_id FROM clientes WHERE uuid = ?',
+      'SELECT id, user_id FROM clientes WHERE uuid = ?',
       [uuid]
     );
 
     if (cliente.length === 0) {
-      await connection.rollback();
-      return res.status(404).json({ message: 'Cliente no encontrado' });
+      throw abortar(404, 'Cliente no encontrado');
     }
 
-    const userId = cliente[0].user_id;
+    const { id: clienteId, user_id: userId } = cliente[0];
 
-    if (userId && email) {
+    if (body.email !== undefined) {
+      const email = body.email.trim();
       const [existing] = await connection.query(
         'SELECT id FROM users WHERE email = ? AND id != ?',
-        [email, userId]
+        [email, userId || 0]
       );
 
       if (existing.length > 0) {
-        await connection.rollback();
-        return res.status(409).json({ message: 'Email ya está en uso' });
+        throw abortar(409, 'Email ya está en uso');
       }
+    }
+
+    const datos = soloDefinidos(body, CAMPOS_CLIENTE);
+
+    if (Object.keys(datos).length > 0) {
+      const campos = Object.entries(datos).map(([campo]) => `${campo} = ?`);
 
       await connection.query(
-        'UPDATE users SET email = ?, name = ?, empresa = ? WHERE id = ?',
-        [email, nombre, empresa, userId]
+        `UPDATE clientes SET ${campos.join(', ')} WHERE id = ?`,
+        [...Object.values(datos), clienteId]
       );
     }
 
-    if (userId && password) {
-      const hashedPassword = await bcrypt.hash(password, 10);
+    if (!userId) return;
+
+    const usuario = {};
+
+    if (body.email !== undefined) usuario.email = body.email.trim();
+    if (body.nombre !== undefined) usuario.name = body.nombre;
+    if (body.empresa !== undefined) usuario.empresa = body.empresa;
+
+    if (Object.keys(usuario).length > 0) {
+      const campos = Object.entries(usuario).map(([campo]) => `${campo} = ?`);
+
       await connection.query(
-        'UPDATE users SET password = ? WHERE id = ?',
+        `UPDATE users SET ${campos.join(', ')} WHERE id = ?`,
+        [...Object.values(usuario), userId]
+      );
+    }
+
+    if (body.password !== undefined) {
+      const hashedPassword = await bcrypt.hash(body.password, 10);
+      await connection.query(
+        'UPDATE users SET password = ?, sesion_version = sesion_version + 1 WHERE id = ?',
         [hashedPassword, userId]
       );
     }
+  });
 
-    await connection.query(
-      `UPDATE clientes
-       SET nombre = ?, empresa = ?, email = ?, telefono = ?, direccion = ?
-       WHERE uuid = ?`,
-      [nombre, empresa, email, telefono, direccion, uuid]
-    );
-
-    await connection.commit();
-
-    res.json({ message: 'Cliente actualizado correctamente' });
-
-  } catch (error) {
-    await connection.rollback();
-
-    if (error instanceof ValidationError) {
-      return res.status(400).json({
-        message: error.message,
-        field: error.field
-      });
-    }
-
-    console.error('Error en updateCliente:', error);
-    res.status(500).json({ message: 'Error al actualizar cliente' });
-  } finally {
-    connection.release();
-  }
+  res.json({ message: 'Cliente actualizado correctamente' });
 };
 
 export const deleteCliente = async (req, res) => {
   const { uuid } = req.params;
 
-  try {
-    const [result] = await pool.query(
-      `UPDATE clientes SET estado = 'inactivo' WHERE uuid = ?`,
+  await conTransaccion(async (connection) => {
+    const [cliente] = await connection.query(
+      'SELECT id, user_id FROM clientes WHERE uuid = ?',
       [uuid]
     );
 
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ message: 'Cliente no encontrado' });
+    if (cliente.length === 0) {
+      throw abortar(404, 'Cliente no encontrado');
     }
 
-    res.json({ message: 'Cliente inactivado correctamente' });
-  } catch (error) {
-    console.error('Error en deleteCliente:', error);
-    res.status(500).json({ message: 'Error al inactivar cliente' });
-  }
+    await connection.query(
+      `UPDATE clientes SET estado = 'inactivo' WHERE id = ?`,
+      [cliente[0].id]
+    );
+
+    if (cliente[0].user_id) {
+      await connection.query(
+        'UPDATE users SET sesion_version = sesion_version + 1 WHERE id = ?',
+        [cliente[0].user_id]
+      );
+    }
+  });
+
+  res.json({ message: 'Cliente inactivado correctamente' });
 };
 
 export const restaurarCliente = async (req, res) => {
-  const { uuid } = req.params;
+  const [result] = await pool.query(
+    `UPDATE clientes SET estado = 'activo' WHERE uuid = ? AND estado = 'inactivo'`,
+    [req.params.uuid]
+  );
 
-  try {
-    const [result] = await pool.query(
-      `UPDATE clientes SET estado = 'activo' WHERE uuid = ? AND estado = 'inactivo'`,
-      [uuid]
-    );
-
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ message: 'Cliente no encontrado o ya está activo' });
-    }
-
-    res.json({ message: 'Cliente restaurado correctamente' });
-  } catch (error) {
-    console.error('Error en restaurarCliente:', error);
-    res.status(500).json({ message: 'Error al restaurar cliente' });
+  if (result.affectedRows === 0) {
+    throw abortar(404, 'Cliente no encontrado o ya está activo');
   }
+
+  res.json({ message: 'Cliente restaurado correctamente' });
 };

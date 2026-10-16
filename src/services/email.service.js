@@ -7,7 +7,6 @@ class EmailService {
       this.resend = null;
     } else {
       this.resend = new Resend(process.env.RESEND_API_KEY);
-      console.log('✅ Resend configurado correctamente');
     }
   }
 
@@ -25,8 +24,6 @@ class EmailService {
         throw new Error('Datos del reporte no proporcionados');
       }
 
-      console.log('📧 Enviando email a:', clienteEmail);
-
       const html = this.generarHTMLCorreo(reporte, clienteNombre, clienteEmpresa);
 
       const { data, error } = await this.resend.emails.send({
@@ -41,8 +38,6 @@ class EmailService {
         throw new Error(error.message || 'Error al enviar email');
       }
 
-      console.log('✅ Email enviado exitosamente. ID:', data.id);
-
       return {
         success: true,
         messageId: data.id
@@ -54,6 +49,96 @@ class EmailService {
         error: error.message || 'Error desconocido'
       };
     }
+  }
+
+  async enviarAcuseTicket({ to, nombre, codigo, url }) {
+    try {
+      if (!this.resend) {
+        throw new Error('RESEND_API_KEY no configurada en variables de entorno');
+      }
+
+      if (!to) {
+        throw new Error('Destinatario no proporcionado');
+      }
+
+      const html = this.generarHTMLAcuse(nombre, codigo, url);
+
+      const { data, error } = await this.resend.emails.send({
+        from: process.env.EMAIL_FROM || 'Nick System <soporte@nicksystem.com>',
+        to: [to],
+        subject: `Recibimos tu solicitud - Ticket ${codigo}`,
+        html: html,
+      });
+
+      if (error) {
+        console.error('❌ Error de Resend:', error);
+        throw new Error(error.message || 'Error al enviar email');
+      }
+
+      return {
+        success: true,
+        messageId: data.id
+      };
+    } catch (error) {
+      console.error('❌ Error enviando acuse:', error);
+      return {
+        success: false,
+        error: error.message || 'Error desconocido'
+      };
+    }
+  }
+
+  escapeHtml(valor) {
+    if (valor === null || valor === undefined) return '';
+    return String(valor)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  generarHTMLAcuse(nombre, codigo, url) {
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Solicitud recibida</title>
+      </head>
+      <body style="font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; color: #333; background-color: #f9fafb; margin: 0; padding: 24px;">
+        <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+          <div style="background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%); color: #ffffff; padding: 32px 24px; text-align: center;">
+            <h1 style="margin: 0; font-size: 24px;">🔧 Nick System</h1>
+            <p style="margin: 8px 0 0; opacity: 0.9;">Recibimos tu solicitud</p>
+          </div>
+          <div style="padding: 32px 24px;">
+            <p style="font-size: 16px; color: #1e3a8a; font-weight: 600; margin-top: 0;">
+              Hola ${this.escapeHtml(nombre) || 'Cliente'}
+            </p>
+            <p style="font-size: 16px; line-height: 1.7; color: #4b5563;">
+              Gracias por escribirnos. Registramos tu solicitud y un miembro del equipo la atenderá a la brevedad.
+            </p>
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 24px; margin: 24px 0; text-align: center;">
+              <p style="margin: 0; color: #475569; font-size: 14px;">Tu código de ticket</p>
+              <p style="margin: 8px 0 0; font-size: 28px; font-weight: 700; color: #1e293b;">${this.escapeHtml(codigo)}</p>
+            </div>
+            <div style="text-align: center; margin: 32px 0;">
+              <a href="${url}" style="display: inline-block; background: #1e3a8a; color: #ffffff; padding: 14px 36px; font-size: 16px; font-weight: 600; text-decoration: none; border-radius: 8px;">
+                Seguir el estado de mi ticket
+              </a>
+            </div>
+            <p style="font-size: 14px; color: #64748b;">¿Problemas? Responde a este correo o escríbenos a soporte@nicksystem.com</p>
+          </div>
+          <div style="background: #1e293b; color: #cbd5e1; padding: 24px; text-align: center; font-size: 13px;">
+            <p style="margin: 0;"><strong>Nick System</strong> - Sistema de Gestión de Servicios Técnicos</p>
+            <p style="margin: 8px 0 0;">© ${new Date().getFullYear()} Nick System. Todos los derechos reservados.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
   }
 
   generarHTMLCorreo(reporte, clienteNombre, clienteEmpresa) {
@@ -192,7 +277,7 @@ class EmailService {
 
           <div class="content">
             <div class="greeting">
-              Estimado/a ${clienteNombre || "Cliente"} ${clienteEmpresa ? `(${clienteEmpresa})` : ""}
+              Estimado/a ${this.escapeHtml(clienteNombre) || "Cliente"} ${clienteEmpresa ? `(${this.escapeHtml(clienteEmpresa)})` : ""}
             </div>
 
             <div class="message">
@@ -203,7 +288,7 @@ class EmailService {
             <div class="info-card">
               <div class="info-item">
                 <div class="info-label">📋 Categoría:</div>
-                <div class="info-value">${reporte.categoria || "No especificado"}</div>
+                <div class="info-value">${this.escapeHtml(reporte.categoria) || "No especificado"}</div>
               </div>
               <div class="info-item">
                 <div class="info-label">📅 Fecha:</div>
@@ -211,7 +296,7 @@ class EmailService {
               </div>
               <div class="info-item">
                 <div class="info-label">👨‍🔧 Técnico:</div>
-                <div class="info-value">${reporte.tecnico_nombre || "No especificado"}</div>
+                <div class="info-value">${this.escapeHtml(reporte.tecnico_nombre) || "No especificado"}</div>
               </div>
               <div class="info-item">
                 <div class="info-label">📱 Modalidad:</div>
@@ -219,7 +304,7 @@ class EmailService {
               </div>
               <div class="info-item">
                 <div class="info-label">📋 Descripción:</div>
-                <div class="info-value">${reporte.descripcion || "No especificado"}</div>
+                <div class="info-value">${this.escapeHtml(reporte.descripcion) || "No especificado"}</div>
               </div>
             </div>
 

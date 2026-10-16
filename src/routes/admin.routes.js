@@ -3,7 +3,6 @@ import {
   getDashboardStats,
   getReportesMesActual,
   getReportesPorCategoria,
-
   getReportes,
   getReporteByUuid,
   updateReporte
@@ -15,6 +14,7 @@ import {
   deleteClave,
   restaurarClave
 } from '../controllers/claves.controller.js';
+import { listarAuditoriaClaves } from '../controllers/auditoria.controller.js';
 import {
   getTecnicos,
   getTecnicoByUuid,
@@ -24,6 +24,14 @@ import {
   restaurarTecnico
 } from '../controllers/tecnicos.controller.js';
 import {
+  asignarAdmin,
+  cancelarAdmin,
+  crearAdmin,
+  detalleAdmin,
+  listarAdmin,
+  vincularClienteAdmin
+} from '../controllers/ticketsController.js';
+import {
   getClientes,
   getClienteByUuid,
   createCliente,
@@ -31,58 +39,72 @@ import {
   deleteCliente,
   restaurarCliente
 } from '../controllers/clientes.controller.js';
-
 import authMiddleware from '../middlewares/auth.middleware.js';
 import roleMiddleware from '../middlewares/role.middleware.js';
+import { asyncHandler } from '../middlewares/async.middleware.js';
 
 const router = Router();
 
 router.use(authMiddleware, roleMiddleware('admin'));
 
-router.get('/dashboard', getDashboardStats);
+router.get('/dashboard', asyncHandler(getDashboardStats));
 
-router.get('/reportes/mes-actual', getReportesMesActual);
+router.get('/reportes/mes-actual', asyncHandler(getReportesMesActual));
 
-router.get('/reportes/por-categoria', getReportesPorCategoria);
+router.get('/reportes/por-categoria', asyncHandler(getReportesPorCategoria));
 
-router.get('/claves', getClaves);
+router.get('/claves', asyncHandler(getClaves));
 
-router.post('/claves', createClave);
+router.post('/claves', asyncHandler(createClave));
 
-router.put('/claves/:id', updateClave);
+router.put('/claves/:id', asyncHandler(updateClave));
 
-router.delete('/claves/:id', deleteClave);
+router.delete('/claves/:id', asyncHandler(deleteClave));
 
-router.patch('/claves/:id/restaurar', restaurarClave);
+router.patch('/claves/:id/restaurar', asyncHandler(restaurarClave));
 
-router.get('/reportes', getReportes);
+router.get('/claves/auditoria', asyncHandler(listarAuditoriaClaves));
 
-router.get('/reportes/:uuid', getReporteByUuid);
+router.get('/reportes', asyncHandler(getReportes));
 
-router.put('/reportes/:uuid', updateReporte);
+router.get('/reportes/:uuid', asyncHandler(getReporteByUuid));
 
-router.get('/tecnicos', getTecnicos);
+router.put('/reportes/:uuid', asyncHandler(updateReporte));
 
-router.get('/tecnicos/:uuid', getTecnicoByUuid);
+router.get('/tecnicos', asyncHandler(getTecnicos));
 
-router.post('/tecnicos', createTecnico);
+router.get('/tecnicos/:uuid', asyncHandler(getTecnicoByUuid));
 
-router.put('/tecnicos/:uuid', updateTecnico);
+router.post('/tecnicos', asyncHandler(createTecnico));
 
-router.delete('/tecnicos/:uuid', deleteTecnico);
+router.put('/tecnicos/:uuid', asyncHandler(updateTecnico));
 
-router.patch('/tecnicos/:uuid/restaurar', restaurarTecnico);
+router.delete('/tecnicos/:uuid', asyncHandler(deleteTecnico));
 
-router.get('/clientes', getClientes);
+router.patch('/tecnicos/:uuid/restaurar', asyncHandler(restaurarTecnico));
 
-router.get('/clientes/:uuid', getClienteByUuid);
+router.get('/clientes', asyncHandler(getClientes));
 
-router.post('/clientes', createCliente );
+router.get('/clientes/:uuid', asyncHandler(getClienteByUuid));
 
-router.put('/clientes/:uuid', updateCliente);
+router.post('/clientes', asyncHandler(createCliente));
 
-router.delete('/clientes/:uuid', deleteCliente);
+router.put('/clientes/:uuid', asyncHandler(updateCliente));
 
-router.patch('/clientes/:uuid/restaurar', restaurarCliente);
+router.delete('/clientes/:uuid', asyncHandler(deleteCliente));
+
+router.patch('/clientes/:uuid/restaurar', asyncHandler(restaurarCliente));
+
+router.get('/tickets', asyncHandler(listarAdmin));
+
+router.post('/tickets', asyncHandler(crearAdmin));
+
+router.get('/tickets/:uuid', asyncHandler(detalleAdmin));
+
+router.patch('/tickets/:uuid/asignar', asyncHandler(asignarAdmin));
+
+router.patch('/tickets/:uuid/cancelar', asyncHandler(cancelarAdmin));
+
+router.patch('/tickets/:uuid/vincular-cliente', asyncHandler(vincularClienteAdmin));
 
 export default router;

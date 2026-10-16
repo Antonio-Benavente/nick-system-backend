@@ -1,103 +1,131 @@
+import { randomUUID } from 'node:crypto';
 import pool from '../config/db.js';
 import bcrypt from 'bcryptjs';
-import { v4 as uuidv4 } from 'uuid';
-import { validateTecnico, ValidationError, validatePassword } from '../validators/validators.js';
+import {
+  validateTecnico,
+  validateTecnicoUpdate
+} from '../validators/validators.js';
+import { abortar } from '../middlewares/error.middleware.js';
+import { conTransaccion } from '../services/transaccion.service.js';
+import { leerPaginacion, cabeceraPaginacion, contar } from '../services/paginacion.service.js';
+
+const CAMPOS_TECNICO = ['nombre', 'email', 'telefono', 'especialidad'];
+
+const soloDefinidos = (body, campos) =>
+  campos.reduce((acc, campo) => {
+    if (body[campo] !== undefined) acc[campo] = body[campo];
+    return acc;
+  }, {});
 
 export const getTecnicos = async (req, res) => {
-  try {
-    const { incluir_inactivos } = req.query;
+  const { incluir_inactivos } = req.query;
+  const paginacion = leerPaginacion(req.query);
 
-    let query = `
-      SELECT
-        t.id,
-        t.uuid,
-        t.nombre,
-        t.email,
-        t.telefono,
-        t.especialidad,
-        t.estado,
-        t.fecha_ingreso,
-        u.id AS user_id,
-        u.email AS user_email
-      FROM tecnicos t
-      INNER JOIN users u ON u.id = t.user_id
-    `;
+  const condiciones = [];
+  const params = [];
 
-    if (incluir_inactivos !== 'true') {
-      query += ` WHERE t.estado = 'activo'`;
-    }
-
-    query += ` ORDER BY t.fecha_ingreso DESC`;
-
-    const [rows] = await pool.query(query);
-    res.json(rows);
-  } catch (error) {
-    console.error('Error en getTecnicos:', error);
-    res.status(500).json({ message: 'Error al obtener técnicos' });
+  if (incluir_inactivos !== 'true') {
+    condiciones.push('t.estado = ?');
+    params.push('activo');
   }
+
+  if (req.query.buscar) {
+    condiciones.push('(t.nombre LIKE ? OR t.email LIKE ? OR t.especialidad LIKE ?)');
+    const patron = `%${String(req.query.buscar).trim().slice(0, 100)}%`;
+    params.push(patron, patron, patron);
+  }
+
+  const donde = condiciones.length ? `WHERE ${condiciones.join(' AND ')}` : '';
+
+  if (paginacion.activa) {
+    const total = await contar(
+      pool,
+      `SELECT COUNT(*) AS total FROM tecnicos t ${donde}`,
+      params
+    );
+    cabeceraPaginacion(res, { total, ...paginacion });
+  }
+
+  const [rows] = await pool.query(
+    `SELECT
+      t.id,
+      t.uuid,
+      t.nombre,
+      t.email,
+      t.telefono,
+      t.especialidad,
+      t.estado,
+      t.fecha_ingreso,
+      u.id AS user_id,
+      u.email AS user_email
+    FROM tecnicos t
+    INNER JOIN users u ON u.id = t.user_id
+    ${donde}
+    ORDER BY t.fecha_ingreso DESC
+    LIMIT ? OFFSET ?`,
+    [...params, paginacion.limite, paginacion.offset]
+  );
+
+  res.json(rows);
 };
 
 export const getTecnicoByUuid = async (req, res) => {
-  try {
-    const { uuid } = req.params;
+  const [rows] = await pool.query(`
+    SELECT
+      t.id,
+      t.uuid,
+      t.nombre,
+      t.email,
+      t.telefono,
+      t.especialidad,
+      t.estado,
+      t.fecha_ingreso,
+      u.id AS user_id,
+      u.email AS user_email,
+      u.role
+    FROM tecnicos t
+    INNER JOIN users u ON u.id = t.user_id
+    WHERE t.uuid = ?
+  `, [req.params.uuid]);
 
-    const [rows] = await pool.query(`
-      SELECT
-        t.id,
-        t.uuid,
-        t.nombre,
-        t.email,
-        t.telefono,
-        t.especialidad,
-        t.estado,
-        t.fecha_ingreso,
-        u.id AS user_id,
-        u.email AS user_email,
-        u.role
-      FROM tecnicos t
-      INNER JOIN users u ON u.id = t.user_id
-      WHERE t.uuid = ?
-    `, [uuid]);
-
-    if (rows.length === 0) {
-      return res.status(404).json({ message: 'Técnico no encontrado' });
-    }
-
-    res.json(rows[0]);
-  } catch (error) {
-    console.error('Error en getTecnicoByUuid:', error);
-    res.status(500).json({ message: 'Error al obtener técnico' });
+  if (rows.length === 0) {
+    throw abortar(404, 'Técnico no encontrado');
   }
+
+  res.json(rows[0]);
 };
 
 export const createTecnico = async (req, res) => {
-  const connection = await pool.getConnection();
+  validateTecnico(req.body);
 
-  try {
-    validateTecnico(req.body);
+  if (!req.body.password) {
+    throw abortar(
+      400,
+      'La contraseña es requerida para crear al técnico',
+      { message: 'La contraseña es requerida para crear al técnico', field: 'password' }
+    );
+  }
 
-    const {
-      nombre,
-      email,
-      password,
-      telefono,
-      especialidad
-    } = req.body;
+  const {
+    nombre,
+    email,
+    password,
+    telefono,
+    especialidad
+  } = req.body;
 
-    await connection.beginTransaction();
-
+  const resultado = await conTransaccion(async (connection) => {
     const [existing] = await connection.query(
       'SELECT id FROM users WHERE email = ?',
       [email]
     );
 
     if (existing.length > 0) {
-      await connection.rollback();
-      return res.status(409).json({ message: 'Email ya registrado' });
+      throw abortar(409, 'Email ya registrado');
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const userUUID = uuidv4();
+    const userUUID = randomUUID();
 
     const [userResult] = await connection.query(
       `INSERT INTO users (uuid, name, email, password, role)
@@ -106,8 +134,7 @@ export const createTecnico = async (req, res) => {
     );
 
     const userId = userResult.insertId;
-
-    const tecnicoUUID = uuidv4();
+    const tecnicoUUID = randomUUID();
 
     await connection.query(
       `INSERT INTO tecnicos
@@ -116,145 +143,121 @@ export const createTecnico = async (req, res) => {
       [tecnicoUUID, userId, nombre, email, telefono || null, especialidad || null]
     );
 
-    await connection.commit();
+    return { uuid: tecnicoUUID, user_uuid: userUUID };
+  });
 
-    res.status(201).json({
-      message: 'Técnico creado correctamente',
-      uuid: tecnicoUUID,
-      user_uuid: userUUID
-    });
-
-  } catch (error) {
-    await connection.rollback();
-
-    if (error instanceof ValidationError) {
-      return res.status(400).json({
-        message: error.message,
-        field: error.field
-      });
-    }
-
-    console.error('Error en createTecnico:', error);
-    res.status(500).json({ message: 'Error al crear técnico' });
-  } finally {
-    connection.release();
-  }
+  res.status(201).json({
+    message: 'Técnico creado correctamente',
+    ...resultado
+  });
 };
 
 export const updateTecnico = async (req, res) => {
   const { uuid } = req.params;
-  const { nombre, email, telefono, especialidad, password } = req.body;
+  const body = soloDefinidos(req.body, [...CAMPOS_TECNICO, 'password']);
 
-  const connection = await pool.getConnection();
+  validateTecnicoUpdate(body);
 
-  try {
-    if (password) {
-      validatePassword(password);
-    }
-
-    await connection.beginTransaction();
-
+  await conTransaccion(async (connection) => {
     const [tecnico] = await connection.query(
-      'SELECT user_id FROM tecnicos WHERE uuid = ?',
+      'SELECT id, user_id FROM tecnicos WHERE uuid = ?',
       [uuid]
     );
 
     if (tecnico.length === 0) {
-      await connection.rollback();
-      return res.status(404).json({ message: 'Técnico no encontrado' });
+      throw abortar(404, 'Técnico no encontrado');
     }
 
-    const userId = tecnico[0].user_id;
+    const { id: tecnicoId, user_id: userId } = tecnico[0];
 
-    if (email) {
+    if (userId && body.email) {
       const [existing] = await connection.query(
         'SELECT id FROM users WHERE email = ? AND id != ?',
-        [email, userId]
+        [body.email, userId]
       );
 
       if (existing.length > 0) {
-        await connection.rollback();
-        return res.status(409).json({ message: 'Email ya está en uso' });
+        throw abortar(409, 'Email ya está en uso');
       }
+    }
+
+    const datos = soloDefinidos(body, CAMPOS_TECNICO);
+
+    if (Object.keys(datos).length > 0) {
+      const campos = Object.entries(datos).map(([campo]) => `${campo} = ?`);
 
       await connection.query(
-        'UPDATE users SET email = ?, name = ? WHERE id = ?',
-        [email, nombre, userId]
+        `UPDATE tecnicos SET ${campos.join(', ')} WHERE id = ?`,
+        [...Object.values(datos), tecnicoId]
       );
     }
 
-    if (password) {
-      const hashedPassword = await bcrypt.hash(password, 10);
+    if (!userId) return;
+
+    const usuario = {};
+
+    if (body.email !== undefined) usuario.email = body.email;
+    if (body.nombre !== undefined) usuario.name = body.nombre;
+
+    if (Object.keys(usuario).length > 0) {
+      const campos = Object.entries(usuario).map(([campo]) => `${campo} = ?`);
+
       await connection.query(
-        'UPDATE users SET password = ? WHERE id = ?',
+        `UPDATE users SET ${campos.join(', ')} WHERE id = ?`,
+        [...Object.values(usuario), userId]
+      );
+    }
+
+    if (body.password !== undefined) {
+      const hashedPassword = await bcrypt.hash(body.password, 10);
+      await connection.query(
+        'UPDATE users SET password = ?, sesion_version = sesion_version + 1 WHERE id = ?',
         [hashedPassword, userId]
       );
     }
+  });
 
-    await connection.query(
-      `UPDATE tecnicos
-       SET nombre = ?, email = ?, telefono = ?, especialidad = ?
-       WHERE uuid = ?`,
-      [nombre, email, telefono, especialidad, uuid]
-    );
-
-    await connection.commit();
-
-    res.json({ message: 'Técnico actualizado correctamente' });
-
-  } catch (error) {
-    await connection.rollback();
-
-    if (error instanceof ValidationError) {
-      return res.status(400).json({
-        message: error.message,
-        field: error.field
-      });
-    }
-
-    console.error('Error en updateTecnico:', error);
-    res.status(500).json({ message: 'Error al actualizar técnico' });
-  } finally {
-    connection.release();
-  }
+  res.json({ message: 'Técnico actualizado correctamente' });
 };
 
 export const deleteTecnico = async (req, res) => {
   const { uuid } = req.params;
 
-  try {
-    const [result] = await pool.query(
-      `UPDATE tecnicos SET estado = 'inactivo' WHERE uuid = ?`,
+  await conTransaccion(async (connection) => {
+    const [tecnico] = await connection.query(
+      'SELECT id, user_id FROM tecnicos WHERE uuid = ?',
       [uuid]
     );
 
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ message: 'Técnico no encontrado' });
+    if (tecnico.length === 0) {
+      throw abortar(404, 'Técnico no encontrado');
     }
 
-    res.json({ message: 'Técnico inactivado correctamente' });
-  } catch (error) {
-    console.error('Error en deleteTecnico:', error);
-    res.status(500).json({ message: 'Error al inactivar técnico' });
-  }
+    await connection.query(
+      `UPDATE tecnicos SET estado = 'inactivo' WHERE id = ?`,
+      [tecnico[0].id]
+    );
+
+    if (tecnico[0].user_id) {
+      await connection.query(
+        'UPDATE users SET sesion_version = sesion_version + 1 WHERE id = ?',
+        [tecnico[0].user_id]
+      );
+    }
+  });
+
+  res.json({ message: 'Técnico inactivado correctamente' });
 };
 
 export const restaurarTecnico = async (req, res) => {
-  const { uuid } = req.params;
+  const [result] = await pool.query(
+    `UPDATE tecnicos SET estado = 'activo' WHERE uuid = ? AND estado = 'inactivo'`,
+    [req.params.uuid]
+  );
 
-  try {
-    const [result] = await pool.query(
-      `UPDATE tecnicos SET estado = 'activo' WHERE uuid = ? AND estado = 'inactivo'`,
-      [uuid]
-    );
-
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ message: 'Técnico no encontrado o ya está activo' });
-    }
-
-    res.json({ message: 'Técnico restaurado correctamente' });
-  } catch (error) {
-    console.error('Error en restaurarTecnico:', error);
-    res.status(500).json({ message: 'Error al restaurar técnico' });
+  if (result.affectedRows === 0) {
+    throw abortar(404, 'Técnico no encontrado o ya está activo');
   }
+
+  res.json({ message: 'Técnico restaurado correctamente' });
 };

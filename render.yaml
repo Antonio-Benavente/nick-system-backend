@@ -13,6 +13,8 @@ services:
         value: production
       - key: PORT
         value: 4000
+      - key: TRUST_PROXY
+        value: 1
       - key: DATABASE_URL
         sync: false
       - key: JWT_SECRET
@@ -22,8 +24,26 @@ services:
       - key: RESEND_API_KEY
         sync: false
       - key: EMAIL_FROM
-        value: Nick System <pruebas@nicksystem.com>
+        value: Nick System <soporte@nicksystem.com>
       - key: FRONTEND_URL
         sync: false
       - key: ALLOWED_ORIGINS
         sync: false
+      - key: RESEND_WEBHOOK_SECRET
+        sync: false
+      - key: WHATSAPP_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_VERIFY_TOKEN
+        sync: false
+      - key: WHATSAPP_APP_SECRET
+        sync: false
+      - key: WHATSAPP_GRAPH_VERSION
+        value: v25.0
+      - key: WHATSAPP_CONVERSACION_MINUTOS
+        value: 30
+      - key: TICKET_EMPRESA_CORREO
+        value: G
+      - key: TICKET_EMPRESA_WHATSAPP
+        value: WhatsApp

@@ -6,6 +6,7 @@ import {
 } from '../controllers/notificaciones.controller.js';
 import authMiddleware from '../middlewares/auth.middleware.js';
 import roleMiddleware from '../middlewares/role.middleware.js';
+import { asyncHandler } from '../middlewares/async.middleware.js';
 
 const router = Router();
 
@@ -24,14 +25,14 @@ router.post(
   authMiddleware,
   roleMiddleware('tecnico', 'admin'),
   emailLimiter,
-  enviarNotificacionReporte
+  asyncHandler(enviarNotificacionReporte)
 );
 
 router.get(
   '/verificar',
   authMiddleware,
   roleMiddleware('admin'),
-  verificarConfiguracion
+  asyncHandler(verificarConfiguracion)
 );
 
 export default router;

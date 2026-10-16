@@ -2,7 +2,6 @@
 node_modules/
 package-lock.json
 yarn.lock
-pnpm-lock.yaml
 
 # Variables de entorno
 .env
@@ -36,5 +35,7 @@ dist/
 build/
 
 # Otros
-docs/
-AGENTS.md
+*.sqlite
+*.db
+
+NickSystemLocal.sql
