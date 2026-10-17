@@ -98,6 +98,17 @@ export const verificarWhatsapp = (req, res) => {
 
 export const recibirWhatsapp = async (req, res) => {
   const secreto = process.env.WHATSAPP_APP_SECRET;
+  const firma = req.get('x-hub-signature-256');
+  const crudo = cuerpoCrudo(req);
+
+  bitacora('webhook.whatsapp', 'petición recibida', {
+    metodo: req.method,
+    contentType: req.get('content-type'),
+    firmaPresente: Boolean(firma),
+    largoFirma: firma ? firma.length : 0,
+    largoCuerpo: crudo.length,
+    userAgent: req.get('user-agent')
+  });
 
   if (!secreto) {
     if (esProduccion()) {
@@ -105,9 +116,12 @@ export const recibirWhatsapp = async (req, res) => {
       return res.status(503).json({ message: 'Webhook no configurado' });
     }
     console.warn('WHATSAPP_APP_SECRET no configurada: se omite la verificación (solo desarrollo)');
-  } else if (!verificarFirmaMeta(cuerpoCrudo(req), req.get('x-hub-signature-256'), secreto)) {
+  } else if (!verificarFirmaMeta(crudo, firma, secreto)) {
     bitacora('webhook.whatsapp', 'RECHAZADO', {
       motivo: 'firma x-hub-signature-256 inválida',
+      firmaPresente: Boolean(firma),
+      largoFirma: firma ? firma.length : 0,
+      largoCuerpo: crudo.length,
       estado: 400
     });
     return res.sendStatus(400);
