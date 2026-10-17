@@ -1,4 +1,5 @@
 import { Resend } from 'resend';
+import { bitacora, enmascararEmail } from './bitacora.service.js';
 
 class EmailService {
   constructor() {
@@ -38,12 +39,22 @@ class EmailService {
         throw new Error(error.message || 'Error al enviar email');
       }
 
+      bitacora('correo.salida', 'reporte enviado', {
+        a: enmascararEmail(clienteEmail),
+        categoria: reporte.categoria,
+        mensajeId: data.id
+      });
+
       return {
         success: true,
         messageId: data.id
       };
     } catch (error) {
       console.error('❌ Error enviando email:', error);
+      bitacora('correo.salida', 'ERROR', {
+        a: enmascararEmail(clienteEmail),
+        motivo: error.message || 'Error desconocido'
+      });
       return {
         success: false,
         error: error.message || 'Error desconocido'
@@ -75,12 +86,23 @@ class EmailService {
         throw new Error(error.message || 'Error al enviar email');
       }
 
+      bitacora('correo.salida', 'acuse enviado', {
+        a: enmascararEmail(to),
+        codigo,
+        mensajeId: data.id
+      });
+
       return {
         success: true,
         messageId: data.id
       };
     } catch (error) {
       console.error('❌ Error enviando acuse:', error);
+      bitacora('correo.salida', 'ERROR', {
+        a: enmascararEmail(to),
+        codigo,
+        motivo: error.message || 'Error desconocido'
+      });
       return {
         success: false,
         error: error.message || 'Error desconocido'
@@ -108,6 +130,10 @@ class EmailService {
     const destinatarios = this.destinatariosTicketInterno();
 
     if (!destinatarios.length) {
+      bitacora('correo.salida', 'notificación interna omitida', {
+        motivo: 'TICKET_NOTIFICACION_EMAIL vacía',
+        codigo
+      });
       return { success: true, omitido: true, messageId: null };
     }
 
@@ -139,12 +165,24 @@ class EmailService {
         throw new Error(error.message || 'Error al enviar email');
       }
 
+      bitacora('correo.salida', 'notificación interna enviada', {
+        canal,
+        codigo,
+        destinatarios: destinatarios.length,
+        mensajeId: data.id
+      });
+
       return {
         success: true,
         messageId: data.id
       };
     } catch (error) {
       console.error('❌ Error enviando notificación interna del ticket:', error);
+      bitacora('correo.salida', 'ERROR', {
+        canal,
+        codigo,
+        motivo: error.message || 'Error desconocido'
+      });
       return {
         success: false,
         error: error.message || 'Error desconocido'

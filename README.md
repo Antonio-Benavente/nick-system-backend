@@ -412,6 +412,19 @@ El estado pendiente se guarda en la tabla `whatsapp_conversaciones` (clave prima
 - **Dedupe**: `mensaje_origen` es UNIQUE, así que un reenvío del mismo `wamid` no repite el mensaje de bienvenida.
 - La tabla se puede depurar con `limpiarConversacionesVencidas()` (exportado en `whatsappConversacion.service.js`).
 
+### Bitácora de webhooks
+
+Cada mensaje entrante y cada envío saliente deja una línea con el formato `[ámbito] | ISO | evento | clave=valor`. Las PII van enmascaradas (`j***@acme.com`, `519****1064`).
+
+```
+[webhook.whatsapp] | 2026-10-17T05:57:05.968Z | mensaje entrante | id=wamid.ABC | de=519****1064 | tipo=text
+[whatsapp.ingesta] | ... | estado de conversación | de=519****1064 | abierta=false
+[whatsapp.salida]   | ... | mensaje enviado | a=519****1064 | mensajeId=wamid.OUT | largo=312
+[ticket.ingesta]   | ... | ticket creado | codigo=TK-AJ0001 | canal=whatsapp | mensajeExternoId=wamid.ABC
+```
+
+Ámbitos: `webhook.whatsapp`, `webhook.correo`, `whatsapp.ingesta`, `whatsapp.salida`, `ticket.ingesta`, `correo.salida`. Los rechazos por firma inválida o por secreto ausente en producción también quedan registrados, con su estado HTTP. Todo sale por `bitacora()` de `src/services/bitacora.service.js`; los errores siguen yendo por `console.error` / `console.warn`.
+
 Mensajes enviados al cliente:
 
 ```

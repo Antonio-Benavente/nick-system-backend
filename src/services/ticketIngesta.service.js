@@ -1,6 +1,7 @@
 import { crearTicket } from './ticketService.js';
 import emailService from './email.service.js';
 import { enviarMensajeTexto } from './whatsapp.service.js';
+import { bitacora, enmascararEmail, enmascararTelefono } from './bitacora.service.js';
 import {
   abrirConversacion,
   cerrarConversacion,
@@ -83,9 +84,22 @@ const esDuplicado = (error) => Boolean(error) && error.code === 'ER_DUP_ENTRY';
 const registrar = async (datos) => {
   try {
     const creado = await crearTicket(datos);
+    bitacora('ticket.ingesta', 'ticket creado', {
+      codigo: creado.codigo,
+      uuid: creado.uuid,
+      canal: datos.canal,
+      empresa: datos.empresa,
+      mensajeExternoId: datos.mensajeExternoId
+    });
     return { creado: true, ...creado };
   } catch (error) {
-    if (esDuplicado(error)) return { creado: false, duplicado: true };
+    if (esDuplicado(error)) {
+      bitacora('ticket.ingesta', 'ticket duplicado', {
+        canal: datos.canal,
+        mensajeExternoId: datos.mensajeExternoId
+      });
+      return { creado: false, duplicado: true };
+    }
     throw error;
   }
 };
@@ -108,6 +122,10 @@ export const ingestarCorreo = async (correo) => {
   const { nombre: nombreRemitente, email } = parsearRemitente(correo.from);
 
   if (esAutomatico(correo, email)) {
+    bitacora('ticket.ingesta', 'correo ignorado', {
+      motivo: 'remitente automático',
+      remitente: enmascararEmail(email)
+    });
     return { creado: false, ignorado: true };
   }
 
@@ -119,6 +137,15 @@ export const ingestarCorreo = async (correo) => {
   const asunto = recortar(correo.subject, LIMITES.asunto) || 'Solicitud por correo';
   const descripcion = recortar(cuerpo, LIMITES.descripcion) || 'Sin descripción';
   const contactoOrigen = recortar(destino, LIMITES.empresa) || null;
+
+  bitacora('ticket.ingesta', 'correo interpretado', {
+    remitente: enmascararEmail(email),
+    empresa,
+    nombre,
+    asunto,
+    cuerpo,
+    tieneTexto: Boolean(correo.text)
+  });
 
   const ticket = await registrar({
     empresa,
@@ -152,6 +179,12 @@ export const ingestarCorreo = async (correo) => {
     nombre,
     codigo: ticket.codigo,
     url: urlTicket
+  });
+
+  bitacora('ticket.ingesta', 'acuse de correo enviado', {
+    a: enmascararEmail(email),
+    exito: acuse.success,
+    detalle: acuse.success ? acuse.messageId : acuse.error
   });
 
   return { ...ticket, acuse, notificacion };
@@ -238,12 +271,30 @@ export const ingestarWhatsapp = async (mensaje, contacto) => {
     contenidoWhatsapp(mensaje).trim() || `[Mensaje recibido de tipo ${mensaje.type || 'desconocido'}]`;
   const datos = interpretarMensaje(contenido);
 
+  bitacora('whatsapp.ingesta', 'contenido interpretado', {
+    de: enmascararTelefono(telefono),
+    tipo: mensaje.type,
+    interpretados: Object.keys(datos).length,
+    empresa: datos.empresa,
+    nombre: datos.nombre,
+    asunto: datos.asunto
+  });
+
   const conversacionAbierta = await hayConversacionAbierta(telefono);
+
+  bitacora('whatsapp.ingesta', 'estado de conversación', {
+    de: enmascararTelefono(telefono),
+    abierta: conversacionAbierta
+  });
 
   if (!conversacionAbierta) {
     const esNuevo = await abrirConversacion(telefono, mensaje.id || `sin-id-${Date.now()}`);
 
     if (!esNuevo) {
+      bitacora('whatsapp.ingesta', 'mensaje duplicado', {
+        de: enmascararTelefono(telefono),
+        id: mensaje.id
+      });
       return { creado: false, duplicado: true };
     }
 
@@ -253,10 +304,17 @@ export const ingestarWhatsapp = async (mensaje, contacto) => {
       console.warn('No se pudo enviar el mensaje de bienvenida por WhatsApp:', respuesta.error);
     }
 
+    bitacora('whatsapp.ingesta', 'esperando datos', {
+      de: enmascararTelefono(telefono),
+      bienvenidaEnviada: respuesta.success,
+      detalle: respuesta.success ? respuesta.messageId : respuesta.error
+    });
+
     return { creado: false, esperando_datos: true, mensaje: respuesta };
   }
 
   await cerrarConversacion(telefono);
+  bitacora('whatsapp.ingesta', 'conversación cerrada', { de: enmascararTelefono(telefono) });
 
   const ticket = await registrar({
     empresa: recortar(datos.empresa, LIMITES.empresa) || process.env.TICKET_EMPRESA_WHATSAPP || 'WhatsApp',
@@ -277,6 +335,13 @@ export const ingestarWhatsapp = async (mensaje, contacto) => {
     if (!acuse.success) {
       console.warn('No se pudo enviar el acuse por WhatsApp:', acuse.error);
     }
+
+    bitacora('whatsapp.ingesta', 'acuse enviado', {
+      de: enmascararTelefono(telefono),
+      codigo: ticket.codigo,
+      exito: acuse.success,
+      detalle: acuse.success ? acuse.messageId : acuse.error
+    });
 
     return { ...ticket, acuse };
   }

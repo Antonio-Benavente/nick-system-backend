@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { bitacora, enmascararTelefono } from './bitacora.service.js';
 
 const GRAPH = 'https://graph.facebook.com';
 
@@ -9,6 +10,10 @@ export const estaConfigurado = () =>
 
 export const enviarMensajeTexto = async (destino, cuerpo) => {
   if (!estaConfigurado()) {
+    bitacora('whatsapp.salida', 'SIN CONFIGURAR', {
+      a: enmascararTelefono(destino),
+      motivo: 'faltan WHATSAPP_TOKEN o WHATSAPP_PHONE_NUMBER_ID'
+    });
     return { success: false, error: 'WhatsApp no configurado (WHATSAPP_TOKEN / WHATSAPP_PHONE_NUMBER_ID)' };
   }
 
@@ -33,14 +38,33 @@ export const enviarMensajeTexto = async (destino, cuerpo) => {
     const datos = await respuesta.json().catch(() => null);
 
     if (!respuesta.ok) {
-      return {
-        success: false,
-        error: datos?.error?.message || `HTTP ${respuesta.status}`
-      };
+      const motivo = datos?.error?.message || `HTTP ${respuesta.status}`;
+
+      bitacora('whatsapp.salida', 'ERROR', {
+        a: enmascararTelefono(destino),
+        http: respuesta.status,
+        codigoError: datos?.error?.code,
+        motivo
+      });
+
+      return { success: false, error: motivo };
     }
 
-    return { success: true, messageId: datos?.messages?.[0]?.id };
+    const messageId = datos?.messages?.[0]?.id || null;
+
+    bitacora('whatsapp.salida', 'mensaje enviado', {
+      a: enmascararTelefono(destino),
+      mensajeId,
+      largo: cuerpo.length,
+      primeraLinea: cuerpo.split('\n').find((linea) => linea.trim()) || ''
+    });
+
+    return { success: true, messageId };
   } catch (error) {
+    bitacora('whatsapp.salida', 'ERROR', {
+      a: enmascararTelefono(destino),
+      motivo: error.message || 'Error desconocido'
+    });
     return { success: false, error: error.message || 'Error desconocido' };
   }
 };
