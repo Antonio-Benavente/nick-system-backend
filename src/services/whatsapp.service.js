@@ -54,7 +54,7 @@ export const enviarMensajeTexto = async (destino, cuerpo) => {
 
     bitacora('whatsapp.salida', 'mensaje enviado', {
       a: enmascararTelefono(destino),
-      mensajeId,
+      messageId,
       largo: cuerpo.length,
       primeraLinea: cuerpo.split('\n').find((linea) => linea.trim()) || ''
     });
