@@ -428,6 +428,7 @@ export const reenviarReporte = async (req, res) => {
     notificacion = { success: true, message_id: resultado.messageId };
   } catch (error) {
     if (!(error instanceof HttpError) || error.statusCode !== 502) throw error;
+    console.error(`No se pudo notificar al cliente del reporte ${reporteUUID}:`, error.message);
     notificacion = { success: false, error: error.message };
   }
 

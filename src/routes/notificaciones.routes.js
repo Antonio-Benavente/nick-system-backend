@@ -7,6 +7,7 @@ import {
 import authMiddleware from '../middlewares/auth.middleware.js';
 import roleMiddleware from '../middlewares/role.middleware.js';
 import { asyncHandler } from '../middlewares/async.middleware.js';
+import { limiteExcedido } from '../middlewares/limite.middleware.js';
 
 const router = Router();
 
@@ -15,9 +16,7 @@ const emailLimiter = rateLimit({
   limit: 20,
   standardHeaders: 'draft-8',
   legacyHeaders: false,
-  message: {
-    message: 'Demasiadas notificaciones enviadas. Intenta de nuevo más tarde.',
-  },
+  handler: limiteExcedido('Demasiadas notificaciones enviadas. Intenta de nuevo más tarde.'),
 });
 
 router.post(

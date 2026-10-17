@@ -9,7 +9,9 @@ export const conTransaccion = async (fn) => {
     await connection.commit();
     return resultado;
   } catch (error) {
-    await connection.rollback().catch(() => {});
+    await connection.rollback().catch((falloRollback) => {
+      console.error('No se pudo hacer rollback de la transacción:', falloRollback.message);
+    });
     throw error;
   } finally {
     connection.release();

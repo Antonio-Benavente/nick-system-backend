@@ -1,6 +1,23 @@
 const SIN_DATO = '-';
 
-const esVacio = (valor) => valor === undefined || valor === null || valor === '';
+const FORMATO_LIMA = new Intl.DateTimeFormat('es-PE', {
+  timeZone: 'America/Lima',
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hourCycle: 'h23'
+});
+
+export const horaLima = (fecha = new Date()) => {
+  const partes = Object.fromEntries(
+    FORMATO_LIMA.formatToParts(fecha).map((parte) => [parte.type, parte.value])
+  );
+
+  return `${partes.day}/${partes.month}/${partes.year} - ${partes.hour}:${partes.minute}:${partes.second}`;
+};
 
 export const enmascararEmail = (valor) => {
   const texto = String(valor || '').trim();
@@ -20,32 +37,6 @@ export const enmascararTelefono = (valor) => {
   return `${digitos.slice(0, 3)}****${digitos.slice(-4)}`;
 };
 
-const recortar = (valor, max) => {
-  const texto = String(valor).replace(/\s+/g, ' ').trim();
-  return texto.length > max ? `${texto.slice(0, max)}…` : texto;
-};
-
-const formatearValor = (valor) => {
-  if (typeof valor === 'number' || typeof valor === 'boolean') return String(valor);
-
-  const texto = String(valor);
-  return /\s/.test(texto) ? `"${recortar(texto, 160)}"` : recortar(texto, 120);
-};
-
-export const bitacora = (ambito, evento, detalle = {}) => {
-  const partes = [`[${ambito}]`, new Date().toISOString(), evento];
-
-  for (const [clave, valor] of Object.entries(detalle)) {
-    if (esVacio(valor)) continue;
-    partes.push(`${clave}=${formatearValor(valor)}`);
-  }
-
-  console.log(partes.join(' | '));
-};
-
-export const resumen = (detalle) => {
-  const total = Number(detalle.total) || 0;
-  const ok = Number(detalle.ok) || 0;
-
-  return `${ok}/${total}`;
+export const bitacora = (canal, mensaje) => {
+  console.log(`[${canal}] ${mensaje}`);
 };

@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { bitacora, enmascararTelefono } from './bitacora.service.js';
+import { enmascararTelefono } from './bitacora.service.js';
 
 const GRAPH = 'https://graph.facebook.com';
 
@@ -10,11 +10,9 @@ export const estaConfigurado = () =>
 
 export const enviarMensajeTexto = async (destino, cuerpo) => {
   if (!estaConfigurado()) {
-    bitacora('whatsapp.salida', 'SIN CONFIGURAR', {
-      a: enmascararTelefono(destino),
-      motivo: 'faltan WHATSAPP_TOKEN o WHATSAPP_PHONE_NUMBER_ID'
-    });
-    return { success: false, error: 'WhatsApp no configurado (WHATSAPP_TOKEN / WHATSAPP_PHONE_NUMBER_ID)' };
+    const motivo = 'WhatsApp no configurado (WHATSAPP_TOKEN / WHATSAPP_PHONE_NUMBER_ID)';
+    console.error(`No se pudo enviar un mensaje a ${enmascararTelefono(destino)}: ${motivo}`);
+    return { success: false, error: motivo };
   }
 
   try {
@@ -39,32 +37,16 @@ export const enviarMensajeTexto = async (destino, cuerpo) => {
 
     if (!respuesta.ok) {
       const motivo = datos?.error?.message || `HTTP ${respuesta.status}`;
-
-      bitacora('whatsapp.salida', 'ERROR', {
-        a: enmascararTelefono(destino),
-        http: respuesta.status,
-        codigoError: datos?.error?.code,
-        motivo
-      });
-
-      return { success: false, error: motivo };
+      console.error(`Meta rechazó el mensaje a ${enmascararTelefono(destino)} (HTTP ${respuesta.status}): ${motivo}`);
+      return {
+        success: false,
+        error: motivo
+      };
     }
 
-    const messageId = datos?.messages?.[0]?.id || null;
-
-    bitacora('whatsapp.salida', 'mensaje enviado', {
-      a: enmascararTelefono(destino),
-      messageId,
-      largo: cuerpo.length,
-      primeraLinea: cuerpo.split('\n').find((linea) => linea.trim()) || ''
-    });
-
-    return { success: true, messageId };
+    return { success: true, messageId: datos?.messages?.[0]?.id };
   } catch (error) {
-    bitacora('whatsapp.salida', 'ERROR', {
-      a: enmascararTelefono(destino),
-      motivo: error.message || 'Error desconocido'
-    });
+    console.error(`No se pudo enviar el mensaje a ${enmascararTelefono(destino)}:`, error.message);
     return { success: false, error: error.message || 'Error desconocido' };
   }
 };

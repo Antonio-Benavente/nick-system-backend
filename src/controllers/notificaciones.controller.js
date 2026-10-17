@@ -26,6 +26,7 @@ export const verificarConfiguracion = async (req, res) => {
   };
 
   if (!config.resend_configured) {
+    console.error('Se consultó la configuración de email pero RESEND_API_KEY no está definida');
     return res.status(503).json({
       success: false,
       message: 'Resend API Key no está configurada',

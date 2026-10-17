@@ -84,22 +84,9 @@ const esDuplicado = (error) => Boolean(error) && error.code === 'ER_DUP_ENTRY';
 const registrar = async (datos) => {
   try {
     const creado = await crearTicket(datos);
-    bitacora('ticket.ingesta', 'ticket creado', {
-      codigo: creado.codigo,
-      uuid: creado.uuid,
-      canal: datos.canal,
-      empresa: datos.empresa,
-      mensajeExternoId: datos.mensajeExternoId
-    });
     return { creado: true, ...creado };
   } catch (error) {
-    if (esDuplicado(error)) {
-      bitacora('ticket.ingesta', 'ticket duplicado', {
-        canal: datos.canal,
-        mensajeExternoId: datos.mensajeExternoId
-      });
-      return { creado: false, duplicado: true };
-    }
+    if (esDuplicado(error)) return { creado: false, duplicado: true };
     throw error;
   }
 };
@@ -120,12 +107,9 @@ const esAutomatico = (correo, email) => {
 
 export const ingestarCorreo = async (correo) => {
   const { nombre: nombreRemitente, email } = parsearRemitente(correo.from);
+  const remitente = enmascararEmail(email);
 
   if (esAutomatico(correo, email)) {
-    bitacora('ticket.ingesta', 'correo ignorado', {
-      motivo: 'remitente automático',
-      remitente: enmascararEmail(email)
-    });
     return { creado: false, ignorado: true };
   }
 
@@ -138,15 +122,6 @@ export const ingestarCorreo = async (correo) => {
   const descripcion = recortar(cuerpo, LIMITES.descripcion) || 'Sin descripción';
   const contactoOrigen = recortar(destino, LIMITES.empresa) || null;
 
-  bitacora('ticket.ingesta', 'correo interpretado', {
-    remitente: enmascararEmail(email),
-    empresa,
-    nombre,
-    asunto,
-    cuerpo,
-    tieneTexto: Boolean(correo.text)
-  });
-
   const ticket = await registrar({
     empresa,
     nombre,
@@ -157,7 +132,14 @@ export const ingestarCorreo = async (correo) => {
     mensajeExternoId: correo.id || null
   });
 
+  if (ticket.duplicado) {
+    bitacora('resend', `Mensaje de ${remitente} → ese mensaje ya tenía un ticket`);
+    return ticket;
+  }
+
   if (!ticket.creado) return ticket;
+
+  bitacora('resend', `Mensaje de ${remitente} → ticket ${ticket.codigo} creado`);
 
   const urlTicket = urlSeguimiento(ticket.uuid);
 
@@ -172,7 +154,23 @@ export const ingestarCorreo = async (correo) => {
     url: urlTicket
   });
 
-  if (!email) return { ...ticket, notificacion };
+  const internos = emailService.destinatariosTicketInterno();
+
+  if (notificacion.omitido) {
+    bitacora('resend', 'Aviso interno → omitido, TICKET_NOTIFICACION_EMAIL está vacía');
+  } else if (!notificacion.success) {
+    bitacora('resend', `Aviso interno → no se pudo enviar: ${notificacion.error}`);
+  } else {
+    bitacora(
+      'resend',
+      `Aviso interno del ticket ${ticket.codigo} → enviado a ${internos.map(enmascararEmail).join(', ')}`
+    );
+  }
+
+  if (!email) {
+    bitacora('resend', `Respuesta a ${remitente} → sin remitente, no pude enviar el acuse`);
+    return { ...ticket, notificacion };
+  }
 
   const acuse = await emailService.enviarAcuseTicket({
     to: email,
@@ -181,11 +179,11 @@ export const ingestarCorreo = async (correo) => {
     url: urlTicket
   });
 
-  bitacora('ticket.ingesta', 'acuse de correo enviado', {
-    a: enmascararEmail(email),
-    exito: acuse.success,
-    detalle: acuse.success ? acuse.messageId : acuse.error
-  });
+  if (!acuse.success) {
+    bitacora('resend', `Respuesta a ${remitente} → no pude enviar el acuse: ${acuse.error}`);
+  } else {
+    bitacora('resend', `Respuesta a ${remitente} → le envié el acuse con el código ${ticket.codigo}`);
+  }
 
   return { ...ticket, acuse, notificacion };
 };
@@ -271,50 +269,29 @@ export const ingestarWhatsapp = async (mensaje, contacto) => {
     contenidoWhatsapp(mensaje).trim() || `[Mensaje recibido de tipo ${mensaje.type || 'desconocido'}]`;
   const datos = interpretarMensaje(contenido);
 
-  bitacora('whatsapp.ingesta', 'contenido interpretado', {
-    de: enmascararTelefono(telefono),
-    tipo: mensaje.type,
-    interpretados: Object.keys(datos).length,
-    empresa: datos.empresa,
-    nombre: datos.nombre,
-    asunto: datos.asunto
-  });
-
   const conversacionAbierta = await hayConversacionAbierta(telefono);
-
-  bitacora('whatsapp.ingesta', 'estado de conversación', {
-    de: enmascararTelefono(telefono),
-    abierta: conversacionAbierta
-  });
 
   if (!conversacionAbierta) {
     const esNuevo = await abrirConversacion(telefono, mensaje.id || `sin-id-${Date.now()}`);
 
     if (!esNuevo) {
-      bitacora('whatsapp.ingesta', 'mensaje duplicado', {
-        de: enmascararTelefono(telefono),
-        id: mensaje.id
-      });
+      bitacora('whatsapp', `Mensaje de ${enmascararTelefono(telefono)} → ya estaba procesado, no hice nada`);
       return { creado: false, duplicado: true };
     }
 
     const respuesta = await enviarMensajeTexto(telefono, mensajeBienvenida());
 
     if (!respuesta.success) {
-      console.warn('No se pudo enviar el mensaje de bienvenida por WhatsApp:', respuesta.error);
+      bitacora('whatsapp', `Mensaje de ${enmascararTelefono(telefono)} → falló la bienvenida: ${respuesta.error}`);
+      return { creado: false, esperando_datos: true, mensaje: respuesta };
     }
 
-    bitacora('whatsapp.ingesta', 'esperando datos', {
-      de: enmascararTelefono(telefono),
-      bienvenidaEnviada: respuesta.success,
-      detalle: respuesta.success ? respuesta.messageId : respuesta.error
-    });
+    bitacora('whatsapp', `Mensaje de ${enmascararTelefono(telefono)} → respondí pidiendo los datos`);
 
     return { creado: false, esperando_datos: true, mensaje: respuesta };
   }
 
   await cerrarConversacion(telefono);
-  bitacora('whatsapp.ingesta', 'conversación cerrada', { de: enmascararTelefono(telefono) });
 
   const ticket = await registrar({
     empresa: recortar(datos.empresa, LIMITES.empresa) || process.env.TICKET_EMPRESA_WHATSAPP || 'WhatsApp',
@@ -326,6 +303,11 @@ export const ingestarWhatsapp = async (mensaje, contacto) => {
     mensajeExternoId: mensaje.id || null
   });
 
+  if (ticket.duplicado) {
+    bitacora('whatsapp', `Mensaje de ${enmascararTelefono(telefono)} → ese mensaje ya tenía un ticket`);
+    return ticket;
+  }
+
   if (ticket.creado && telefono) {
     const acuse = await enviarMensajeTexto(
       telefono,
@@ -333,17 +315,18 @@ export const ingestarWhatsapp = async (mensaje, contacto) => {
     );
 
     if (!acuse.success) {
-      console.warn('No se pudo enviar el acuse por WhatsApp:', acuse.error);
+      bitacora('whatsapp', `Mensaje de ${enmascararTelefono(telefono)} → creé el ticket ${ticket.codigo} pero el acuse falló: ${acuse.error}`);
+      return { ...ticket, acuse };
     }
 
-    bitacora('whatsapp.ingesta', 'acuse enviado', {
-      de: enmascararTelefono(telefono),
-      codigo: ticket.codigo,
-      exito: acuse.success,
-      detalle: acuse.success ? acuse.messageId : acuse.error
-    });
+    bitacora('whatsapp', `Mensaje de ${enmascararTelefono(telefono)} → creé el ticket ${ticket.codigo} y le devolví el código`);
 
     return { ...ticket, acuse };
+  }
+
+  if (ticket.creado) {
+    bitacora('whatsapp', `Mensaje de ${enmascararTelefono(telefono)} → creé el ticket ${ticket.codigo}`);
+    return ticket;
   }
 
   return ticket;

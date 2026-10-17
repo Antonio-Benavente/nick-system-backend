@@ -1,3 +1,4 @@
+import "./config/logs.js";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -17,6 +18,7 @@ import webhooksRoutes from "./routes/webhooks.routes.js";
 
 import { errorHandler } from "./middlewares/error.middleware.js";
 import { asyncHandler } from "./middlewares/async.middleware.js";
+import { limiteExcedido } from "./middlewares/limite.middleware.js";
 
 const app = express();
 
@@ -78,6 +80,7 @@ const apiLimiter = rateLimit({
   standardHeaders: 'draft-8',
   legacyHeaders: false,
   skip: (req) => req.path === '/health',
+  handler: limiteExcedido('Demasiadas peticiones. Intenta de nuevo en unos minutos.'),
 });
 
 apiRouter.use(apiLimiter);
@@ -96,8 +99,9 @@ apiRouter.get("/health", asyncHandler(async (req, res) => {
 
   try {
     await pool.query('SELECT 1');
-  } catch {
+  } catch (error) {
     baseDeDatos = 'error';
+    console.error('El health check no pudo consultar MySQL:', error.message);
   }
 
   const sano = baseDeDatos === 'ok';

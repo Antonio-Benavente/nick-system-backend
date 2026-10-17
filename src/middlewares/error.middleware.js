@@ -103,16 +103,19 @@ export const responderError = (err, res, mensajePorDefecto) => {
 };
 
 export const errorHandler = (err, req, res, next) => {
+  const donde = `${req.method} ${req.originalUrl}`;
+
   if (res.headersSent) {
+    console.error(`Error con la respuesta ya enviada en ${donde}:`, err);
     return next(err);
   }
 
   const status = err instanceof HttpError ? err.statusCode : (err?.statusCode || 500);
 
   if (status >= 500) {
-    console.error('Error capturado:', err);
+    console.error(`Error ${status} en ${donde}:`, err);
   } else if (esDesarrollo()) {
-    console.warn(`Error ${status} en ${req.method} ${req.originalUrl}: ${err?.message}`);
+    console.warn(`Error ${status} en ${donde}: ${err?.message}`);
   }
 
   if (err instanceof ValidationError) {

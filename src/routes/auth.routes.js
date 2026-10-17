@@ -8,6 +8,7 @@ import {
 } from '../controllers/auth.controller.js';
 import authMiddleware from '../middlewares/auth.middleware.js';
 import { asyncHandler } from '../middlewares/async.middleware.js';
+import { limiteExcedido } from '../middlewares/limite.middleware.js';
 
 const router = Router();
 
@@ -17,9 +18,9 @@ const loginLimiter = rateLimit({
   standardHeaders: 'draft-8',
   legacyHeaders: false,
   skipSuccessfulRequests: true,
-  message: {
-    message: 'Demasiados intentos de inicio de sesión. Intenta de nuevo más tarde.',
-  },
+  handler: limiteExcedido(
+    'Demasiados intentos de inicio de sesión. Intenta de nuevo más tarde.'
+  ),
 });
 
 const passwordLimiter = rateLimit({
@@ -27,9 +28,9 @@ const passwordLimiter = rateLimit({
   limit: 10,
   standardHeaders: 'draft-8',
   legacyHeaders: false,
-  message: {
-    message: 'Demasiados intentos de cambio de contraseña. Intenta de nuevo más tarde.',
-  },
+  handler: limiteExcedido(
+    'Demasiados intentos de cambio de contraseña. Intenta de nuevo más tarde.'
+  ),
 });
 
 router.post('/login', loginLimiter, asyncHandler(login));

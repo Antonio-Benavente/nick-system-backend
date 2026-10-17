@@ -414,16 +414,49 @@ El estado pendiente se guarda en la tabla `whatsapp_conversaciones` (clave prima
 
 ### Bitácora de webhooks
 
-Cada mensaje entrante y cada envío saliente deja una línea con el formato `[ámbito] | ISO | evento | clave=valor`. Las PII van enmascaradas (`j***@acme.com`, `519****1064`).
+Cada mensaje entrante deja **una única línea**. Todas las salidas de consola llevan hora de **America/Lima** en formato `DD/MM/AAAA - HH:MM:SS`, precedida de `||`, porque `src/config/logs.js` parchea `console` al arrancar. Las PII van enmascaradas (`j***@acme.com`, `519****1064`).
 
 ```
-[webhook.whatsapp] | 2026-10-17T05:57:05.968Z | mensaje entrante | id=wamid.ABC | de=519****1064 | tipo=text
-[whatsapp.ingesta] | ... | estado de conversación | de=519****1064 | abierta=false
-[whatsapp.salida]   | ... | mensaje enviado | a=519****1064 | mensajeId=wamid.OUT | largo=312
-[ticket.ingesta]   | ... | ticket creado | codigo=TK-AJ0001 | canal=whatsapp | mensajeExternoId=wamid.ABC
+|| 17/10/2026 - 02:08:11  [whatsapp] Mensaje de 519****1064 → respondí pidiendo los datos
+|| 17/10/2026 - 02:08:32  [whatsapp] Mensaje de 519****1064 → creé el ticket TK-PA0001 y le devolví el código
+|| 17/10/2026 - 02:09:13  [resend] Mensaje de a***@acme.com → ticket TK-AC0002 creado
+|| 17/10/2026 - 02:09:13  [resend] Aviso interno del ticket TK-AC0002 → enviado a s***@nicksystem.com
+|| 17/10/2026 - 02:09:14  [resend] Respuesta a a***@acme.com → le envié el acuse con el código TK-AC0002
 ```
 
-Ámbitos: `webhook.whatsapp`, `webhook.correo`, `whatsapp.ingesta`, `whatsapp.salida`, `ticket.ingesta`, `correo.salida`. Los rechazos por firma inválida o por secreto ausente en producción también quedan registrados, con su estado HTTP. Todo sale por `bitacora()` de `src/services/bitacora.service.js`; los errores siguen yendo por `console.error` / `console.warn`.
+Las líneas que emite `bitacora()` llevan el prefijo `[canal]`; el resto (errores, avisos, banners de arranque) no lo llevan. En Render la línea aparece con **dos** timestamps porque la plataforma antepone el suyo propio en UTC y no es configurable:
+
+```
+2026-10-17T07:08:11Z || 17/10/2026 - 02:08:11  [whatsapp] Mensaje de 519****1064 → ...
+```
+
+Canales: `whatsapp` (una línea por mensaje) y `resend` (tres: la entrada, el aviso interno y la respuesta al cliente).
+
+Posibles desenlaces del canal `whatsapp`:
+
+| Línea | Cuándo |
+|---|---|
+| `respondí pidiendo los datos` | Mensaje 1 de la conversación |
+| `creé el ticket TK-XX0000 y le devolví el código` | Mensaje 2, ticket creado y acuse enviado |
+| `creé el ticket TK-XX0000 pero el acuse falló: <motivo>` | El ticket se creó, el acuse no salió |
+| `ese mensaje ya tenía un ticket` | Reenvío del mismo `wamid` |
+| `ya estaba procesado, no hice nada` | Reenvío que habría repetido la bienvenida |
+| `falló la bienvenida: <motivo>` | No se pudo pedir los datos |
+
+Posibles desenlaces del canal `resend`:
+
+| Línea | Cuándo |
+|---|---|
+| `Mensaje de <correo> → ticket TK-XX0000 creado` | Entrada procesada |
+| `Mensaje de <correo> → ese mensaje ya tenía un ticket` | Reenvío del mismo `email_id` |
+| `Aviso interno del ticket TK-XX0000 → enviado a <destinatarios>` | Aviso al equipo entregado |
+| `Aviso interno → omitido, TICKET_NOTIFICACION_EMAIL está vacía` | Notificación interna desactivada |
+| `Aviso interno → no se pudo enviar: <motivo>` | Resend rechazó el aviso interno |
+| `Respuesta a <correo> → le envié el acuse con el código TK-XX0000` | Acuse entregado |
+| `Respuesta a <correo> → no pude enviar el acuse: <motivo>` | Resend rechazó el envío |
+| `Respuesta a <correo> → sin remitente, no pude enviar el acuse` | El correo llegó sin dirección de retorno |
+
+Fuera de esas líneas solo aparecen **errores**, por `console.error`: rechazos por firma inválida, secreto de webhook ausente en producción, errores de Meta/Resend, `5xx` con su método y ruta, `429` por rate limit y rechazos de token.
 
 Mensajes enviados al cliente:
 

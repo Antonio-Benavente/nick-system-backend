@@ -5,10 +5,12 @@ services:
     region: oregon
     plan: free
     branch: main
-    buildCommand: corepack enable && corepack prepare pnpm@11.22.0 --activate && pnpm install --frozen-lockfile
+    buildCommand: npm i -g pnpm@11.22.0 && pnpm install --frozen-lockfile
     startCommand: pnpm start
     healthCheckPath: /health
     envVars:
+      - key: NODE_VERSION
+        value: 22
       - key: NODE_ENV
         value: production
       - key: PORT
