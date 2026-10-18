@@ -47,7 +47,8 @@ export const getClaves = async (req, res) => {
       pc_password,
       anydesk,
       anydesk_password,
-      estado
+      estado,
+      updated_at
     FROM claves
     ${donde}
     ORDER BY empresa

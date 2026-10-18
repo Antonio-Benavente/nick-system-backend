@@ -31,6 +31,7 @@ import {
   listarAdmin,
   vincularClienteAdmin
 } from '../controllers/ticketsController.js';
+import { verGastos } from '../controllers/gastos.controller.js';
 import {
   getClientes,
   getClienteByUuid,
@@ -106,5 +107,7 @@ router.patch('/tickets/:uuid/asignar', asyncHandler(asignarAdmin));
 router.patch('/tickets/:uuid/cancelar', asyncHandler(cancelarAdmin));
 
 router.patch('/tickets/:uuid/vincular-cliente', asyncHandler(vincularClienteAdmin));
+
+router.get('/tickets/:uuid/gastos', asyncHandler(verGastos));
 
 export default router;

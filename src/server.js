@@ -1,7 +1,11 @@
 import "./config/logs.js";
 import app from "./app.js";
 import pool from "./config/db.js";
-import { limpiarConversacionesVencidas } from "./services/whatsappConversacion.service.js";
+import {
+  limpiarConversacionesVencidas,
+  limpiarMensajesAntiguos
+} from "./services/whatsappConversacion.service.js";
+import { iniciarWarmup } from "./services/warmup.service.js";
 
 const INTERVALO_LIMPIEZA_MS = 15 * 60 * 1000;
 const APAGADO_MAXIMO_MS = 10000;
@@ -24,6 +28,17 @@ const iniciarLimpieza = () => {
       }
     } catch (error) {
       console.warn('⚠️ Fallo limpiando conversaciones vencidas:', error.message);
+    }
+
+    try {
+      // El registro de idempotencia solo sirve unos días: pasado ese plazo Meta ya
+      // no reintenta y la fila solo ocupa espacio.
+      const purgados = await limpiarMensajesAntiguos();
+      if (purgados > 0) {
+        console.log(`🧹 Mensajes de WhatsApp purgados: ${purgados}`);
+      }
+    } catch (error) {
+      console.warn('⚠️ Fallo purgando mensajes de WhatsApp:', error.message);
     }
   }, INTERVALO_LIMPIEZA_MS);
 
@@ -54,6 +69,7 @@ async function startServer() {
   });
 
   const tareaLimpieza = iniciarLimpieza();
+  const tareaWarmup = iniciarWarmup();
 
   const shutdown = (senal) => {
     if (cerrando) return;
@@ -61,6 +77,7 @@ async function startServer() {
 
     console.log(`🛑 Cerrando servidor (${senal})...`);
     clearInterval(tareaLimpieza);
+    clearInterval(tareaWarmup);
 
     server.close(() => {
       pool.end().finally(() => process.exit(0));

@@ -1,7 +1,6 @@
 import pool from '../config/db.js';
 import emailService from './email.service.js';
 import { getEvidenciasPorReporte } from './evidencias.service.js';
-import { getTecnicoByUserId } from './entidades.service.js';
 import { abortar } from '../middlewares/error.middleware.js';
 
 const SELECT_REPORTE = `
@@ -33,7 +32,7 @@ export const obtenerReporteNotificable = async (reporteUuid) => {
 export const verificarPermisoNotificar = async (reporte, user) => {
   if (user.role !== 'tecnico') return;
 
-  const tecnico = await getTecnicoByUserId(user.id);
+  const tecnico = user.tecnico;
 
   if (!tecnico || tecnico.uuid !== reporte.tecnico_uuid) {
     throw abortar(403, 'No tienes permisos para notificar este reporte');

@@ -5,7 +5,6 @@ import helmet from "helmet";
 import compression from "compression";
 import rateLimit from "express-rate-limit";
 
-import pool from "./config/db.js";
 import authRoutes from "./routes/auth.routes.js";
 import adminRoutes from "./routes/admin.routes.js";
 import tecnicosRoutes from "./routes/tecnicos.routes.js";
@@ -15,6 +14,7 @@ import evidenciasRoutes from "./routes/evidencias.routes.js";
 import notificacionesRoutes from "./routes/notificaciones.routes.js";
 import publicoRoutes from "./routes/publico.routes.js";
 import webhooksRoutes from "./routes/webhooks.routes.js";
+import { comprobarBaseDatos } from "./services/health.service.js";
 
 import { errorHandler } from "./middlewares/error.middleware.js";
 import { asyncHandler } from "./middlewares/async.middleware.js";
@@ -61,6 +61,7 @@ const corsOptions = {
     }
   },
   credentials: true,
+  exposedHeaders: ['X-Total-Count', 'X-Page-Size', 'X-Page-Offset']
 };
 
 app.use(cors(corsOptions));
@@ -95,21 +96,12 @@ apiRouter.use("/notificaciones", notificacionesRoutes);
 apiRouter.use("/publico", publicoRoutes);
 
 apiRouter.get("/health", asyncHandler(async (req, res) => {
-  let baseDeDatos = 'ok';
+  const { sano: baseDeDatos } = await comprobarBaseDatos();
 
-  try {
-    await pool.query('SELECT 1');
-  } catch (error) {
-    baseDeDatos = 'error';
-    console.error('El health check no pudo consultar MySQL:', error.message);
-  }
-
-  const sano = baseDeDatos === 'ok';
-
-  res.status(sano ? 200 : 503).json({
-    status: sano ? "ok" : "degradado",
-    message: sano ? "Backend funcionando 🚀" : "El backend responde pero MySQL no está disponible",
-    database: baseDeDatos,
+  res.status(baseDeDatos ? 200 : 503).json({
+    status: baseDeDatos ? "ok" : "degradado",
+    message: baseDeDatos ? "Backend funcionando 🚀" : "El backend responde pero MySQL no está disponible",
+    database: baseDeDatos ? "ok" : "error",
     environment: process.env.NODE_ENV || "development",
     timestamp: new Date().toISOString(),
   });

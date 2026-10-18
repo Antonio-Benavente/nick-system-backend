@@ -11,17 +11,47 @@ const SELECT_USUARIO = `
     u.email,
     u.role,
     u.sesion_version,
-    COALESCE(
-      CASE u.role
-        WHEN 'tecnico' THEN (SELECT estado FROM tecnicos WHERE user_id = u.id)
-        WHEN 'cliente' THEN (SELECT estado FROM clientes WHERE user_id = u.id)
-        ELSE 'activo'
-      END,
-      'inactivo'
-    ) AS estado
+    te.id AS tecnico_id,
+    te.uuid AS tecnico_uuid,
+    COALESCE(te.estado, 'inactivo') AS estado
+  FROM users u
+  LEFT JOIN tecnicos te ON te.user_id = u.id AND u.role = 'tecnico'
+  WHERE u.id = ? AND u.uuid = ?
+`;
+
+const SELECT_USUARIO_CLIENTE = `
+  SELECT
+    u.id,
+    u.uuid,
+    u.name,
+    u.email,
+    u.role,
+    u.sesion_version,
+    cl.id AS cliente_id,
+    COALESCE(cl.estado, 'inactivo') AS estado
+  FROM users u
+  LEFT JOIN clientes cl ON cl.user_id = u.id AND u.role = 'cliente'
+  WHERE u.id = ? AND u.uuid = ?
+`;
+
+const SELECT_USUARIO_ADMIN = `
+  SELECT
+    u.id,
+    u.uuid,
+    u.name,
+    u.email,
+    u.role,
+    u.sesion_version,
+    'activo' AS estado
   FROM users u
   WHERE u.id = ? AND u.uuid = ?
 `;
+
+const SELECT_POR_ROL = {
+  admin: SELECT_USUARIO_ADMIN,
+  tecnico: SELECT_USUARIO,
+  cliente: SELECT_USUARIO_CLIENTE
+};
 
 export default async function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization;
@@ -47,7 +77,8 @@ export default async function authMiddleware(req, res, next) {
   }
 
   try {
-    const [rows] = await pool.query(SELECT_USUARIO, [payload.id, payload.uuid]);
+    const consulta = SELECT_POR_ROL[payload.role] || SELECT_USUARIO_ADMIN;
+    const [rows] = await pool.query(consulta, [payload.id, payload.uuid]);
 
     if (rows.length === 0) {
       console.warn(`Token sin usuario en ${req.method} ${req.originalUrl} (id ${payload.id})`);
@@ -55,6 +86,11 @@ export default async function authMiddleware(req, res, next) {
     }
 
     const usuario = rows[0];
+
+    if (usuario.role !== payload.role) {
+      console.warn(`Rol del token distinto al de la base en ${req.method} ${req.originalUrl}`);
+      return res.status(401).json({ message: 'Token inválido o expirado' });
+    }
 
     if (Number(usuario.sesion_version) !== Number(payload.sv || 0)) {
       console.warn(`Sesión cerrada (sesion_version) en ${req.method} ${req.originalUrl} (id ${payload.id})`);
@@ -77,6 +113,14 @@ export default async function authMiddleware(req, res, next) {
       email: usuario.email,
       role: usuario.role,
     };
+
+    if (usuario.role === 'tecnico') {
+      req.user.tecnico = { id: usuario.tecnico_id, uuid: usuario.tecnico_uuid };
+    }
+
+    if (usuario.role === 'cliente') {
+      req.user.cliente = { id: usuario.cliente_id };
+    }
 
     next();
   } catch (error) {

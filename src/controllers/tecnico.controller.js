@@ -19,7 +19,6 @@ import {
 } from "../services/notificaciones.service.js";
 import { attachEvidencias } from "../services/evidencias.service.js";
 import { obtenerOCrearCategoria } from "../services/categorias.service.js";
-import { getTecnicoByUserId } from "../services/entidades.service.js";
 import { leerPaginacion, cabeceraPaginacion, contar } from "../services/paginacion.service.js";
 
 const CONFORMIDAD_INICIAL = 'por_confirmar';
@@ -58,7 +57,7 @@ export const getMisReportes = async (req, res) => {
   const paginacion = leerPaginacion(req.query);
   const rango = validarRangoFechas(req.query);
 
-  const tecnico = await getTecnicoByUserId(req.user.id);
+  const tecnico = req.user.tecnico;
 
   if (!tecnico) {
     throw abortar(404, "Técnico no encontrado");
@@ -137,7 +136,7 @@ export const getMisReportes = async (req, res) => {
 };
 
 export const getMisEstadisticas = async (req, res) => {
-  const tecnico = await getTecnicoByUserId(req.user.id);
+  const tecnico = req.user.tecnico;
 
   if (!tecnico) {
     throw abortar(404, "Técnico no encontrado");
@@ -194,7 +193,7 @@ export const createReporte = async (req, res) => {
   const listaEvidencias = validarEvidencias(evidencias);
 
   const resultado = await conTransaccion(async (connection) => {
-    const tecnico = await getTecnicoByUserId(req.user.id, connection);
+    const tecnico = req.user.tecnico;
 
     if (!tecnico) {
       throw abortar(404, 'Técnico no encontrado');
@@ -276,7 +275,7 @@ export const updateReporte = async (req, res) => {
   const listaEvidencias = validarEvidencias(datos.evidencias);
 
   const resultado = await conTransaccion(async (connection) => {
-    const tecnico = await getTecnicoByUserId(req.user.id, connection);
+    const tecnico = req.user.tecnico;
 
     if (!tecnico) {
       throw abortar(404, 'Técnico no encontrado');

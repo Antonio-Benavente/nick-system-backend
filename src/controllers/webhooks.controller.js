@@ -2,11 +2,21 @@ import { verificarFirmaSvix } from '../services/svix.service.js';
 import { obtenerCorreoRecibido } from '../services/resendInbound.service.js';
 import { ingestarCorreo, ingestarWhatsapp } from '../services/ticketIngesta.service.js';
 import { verificarFirmaMeta } from '../services/whatsapp.service.js';
+import { exigirBaseDeDatos } from '../services/health.service.js';
 import { responderError } from '../middlewares/error.middleware.js';
 
 const esProduccion = () => process.env.NODE_ENV === 'production';
 
 const cuerpoCrudo = (req) => (req.rawBody ? req.rawBody.toString('utf8') : '');
+
+const healthPrevio = async (canal, res) => {
+  const { sano, motivo } = await exigirBaseDeDatos(canal);
+
+  if (sano) return true;
+
+  res.status(503).json({ message: 'Base de datos no disponible', detalle: motivo });
+  return false;
+};
 
 export const recibirCorreoResend = async (req, res) => {
   const secreto = process.env.RESEND_WEBHOOK_SECRET;
@@ -29,6 +39,8 @@ export const recibirCorreoResend = async (req, res) => {
     console.error('Webhook de correo rechazado: firma Svix inválida');
     return res.status(400).json({ message: 'Firma inválida' });
   }
+
+  if (!(await healthPrevio('el webhook de correo', res))) return;
 
   const evento = req.body;
   const emailId = evento?.data?.email_id || null;
@@ -78,6 +90,8 @@ export const recibirWhatsapp = async (req, res) => {
     console.error('Webhook de WhatsApp rechazado: firma x-hub-signature-256 inválida');
     return res.sendStatus(400);
   }
+
+  if (!(await healthPrevio('el webhook de WhatsApp', res))) return;
 
   try {
     const entradas = req.body?.entry || [];

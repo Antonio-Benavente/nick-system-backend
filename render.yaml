@@ -5,7 +5,7 @@ services:
     region: oregon
     plan: free
     branch: main
-    buildCommand: npm i -g pnpm@11.22.0 && pnpm install --frozen-lockfile
+    buildCommand: corepack enable && corepack prepare pnpm@11.22.0 --activate && pnpm install --frozen-lockfile
     startCommand: pnpm start
     healthCheckPath: /health
     envVars:
@@ -20,6 +20,8 @@ services:
       - key: DATABASE_URL
         sync: false
       - key: JWT_SECRET
+        generateValue: true
+      - key: TICKET_CODIGO_SECRET
         generateValue: true
       - key: JWT_EXPIRES_IN
         value: 1d
@@ -49,3 +51,9 @@ services:
         value: G
       - key: TICKET_EMPRESA_WHATSAPP
         value: WhatsApp
+      - key: TICKET_NOTIFICACION_EMAIL
+        sync: false
+      - key: WARMUP_MINUTOS
+        value: 10
+      - key: WARMUP_HORARIO
+        value: 08:00-22:00

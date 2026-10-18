@@ -7,7 +7,6 @@ import {
 } from '../validators/validators.js';
 import { abortar } from '../middlewares/error.middleware.js';
 import { attachEvidencias, getEvidenciasPorReporte } from '../services/evidencias.service.js';
-import { getClienteByUserId } from '../services/entidades.service.js';
 import { leerPaginacion, cabeceraPaginacion, contar } from '../services/paginacion.service.js';
 
 export const getMisReportes = async (req, res) => {
@@ -15,7 +14,7 @@ export const getMisReportes = async (req, res) => {
   const paginacion = leerPaginacion(req.query);
   const rango = validarRangoFechas(req.query);
 
-  const cliente = await getClienteByUserId(req.user.id);
+  const cliente = req.user.cliente;
 
   if (!cliente) {
     throw abortar(404, 'Cliente no encontrado');
@@ -86,7 +85,7 @@ export const getMisReportes = async (req, res) => {
 };
 
 export const getReporteByUuid = async (req, res) => {
-  const cliente = await getClienteByUserId(req.user.id);
+  const cliente = req.user.cliente;
 
   if (!cliente) {
     throw abortar(404, 'Cliente no encontrado');
@@ -120,7 +119,7 @@ export const updateConformidad = async (req, res) => {
 
   const { cliente_conforme, aprobado_por } = req.body;
 
-  const cliente = await getClienteByUserId(req.user.id);
+  const cliente = req.user.cliente;
 
   if (!cliente) {
     throw abortar(404, 'Cliente no encontrado');

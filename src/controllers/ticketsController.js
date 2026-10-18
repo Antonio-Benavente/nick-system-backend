@@ -1,19 +1,23 @@
 import pool from '../config/db.js';
 import {
   COLUMNAS_TICKET,
-  SQL_CODIGO_TICKET,
+  REGEX_CODIGO_TICKET,
   aplicarTransicion,
   crearTicket,
+  registrarConformidad,
   vincularCliente,
   desvincularCliente
 } from '../services/ticketService.js';
-import { getTecnicoByUserId } from '../services/entidades.service.js';
 import { leerPaginacion, cabeceraPaginacion, contar } from '../services/paginacion.service.js';
+import { bitacora } from '../services/bitacora.service.js';
+import emailService from '../services/email.service.js';
+import { urlSeguimiento } from '../services/ticketIngesta.service.js';
 import { abortar } from '../middlewares/error.middleware.js';
 import {
   esUUID,
   validarAsignacion,
   validarAtencion,
+  validarConformidad,
   validarFiltros,
   validarNuevoTicket,
   validarVinculo
@@ -21,7 +25,11 @@ import {
 
 const ERRORES_TRANSICION = {
   no_existe: [404, 'Ticket no encontrado'],
-  estado_invalido: [409, 'El ticket no puede cambiar desde su estado actual']
+  estado_invalido: [409, 'El ticket no puede cambiar desde su estado actual'],
+  ya_confirmado: [
+    409,
+    'Ya registraste tu respuesta para este ticket y no se puede modificar desde aquí. Escribe a soporte@nicksystem.com o llama al 992741064 para cambiarlo.'
+  ]
 };
 
 const responderTransicion = async (res, resultado, uuid) => {
@@ -138,7 +146,7 @@ export const vincularClienteAdmin = async (req, res) => {
 
   if (!ticket.length) throw abortar(404, 'Ticket no encontrado');
 
-  if (!['pendiente', 'asignado', 'en_proceso'].includes(ticket[0].estado)) {
+  if (!['pendiente', 'asignado', 'en_servicio'].includes(ticket[0].estado)) {
     throw abortar(409, 'No se puede vincular un ticket cerrado o cancelado');
   }
 
@@ -174,7 +182,7 @@ export const vincularClienteAdmin = async (req, res) => {
 };
 
 export const misTickets = async (req, res) => {
-  const tecnico = await getTecnicoByUserId(req.user.id);
+  const tecnico = req.user.tecnico;
 
   if (!tecnico) throw abortar(404, 'Técnico no encontrado');
 
@@ -192,7 +200,7 @@ export const misTickets = async (req, res) => {
   const [filas] = await pool.query(
     `SELECT ${COLUMNAS_TICKET} FROM tickets
      WHERE tecnico_uuid = ?
-     ORDER BY FIELD(estado, 'en_proceso', 'asignado', 'atendido', 'cancelado'), created_at DESC
+     ORDER BY FIELD(estado, 'en_servicio', 'asignado', 'pendiente', 'atendido', 'cancelado'), created_at DESC
      LIMIT ? OFFSET ?`,
     [tecnico.uuid, paginacion.limite, paginacion.offset]
   );
@@ -200,20 +208,20 @@ export const misTickets = async (req, res) => {
   res.json(filas);
 };
 
-export const iniciarTecnico = async (req, res) => {
-  const tecnico = await getTecnicoByUserId(req.user.id);
+export const iniciarServicioTecnico = async (req, res) => {
+  const tecnico = req.user.tecnico;
 
   if (!tecnico) throw abortar(404, 'Técnico no encontrado');
 
   await responderTransicion(
     res,
-    await aplicarTransicion('iniciar', req.params.uuid, { propietarioUuid: tecnico.uuid }),
+    await aplicarTransicion('iniciar_servicio', req.params.uuid, { propietarioUuid: tecnico.uuid }),
     req.params.uuid
   );
 };
 
 export const atenderTecnico = async (req, res) => {
-  const tecnico = await getTecnicoByUserId(req.user.id);
+  const tecnico = req.user.tecnico;
 
   if (!tecnico) throw abortar(404, 'Técnico no encontrado');
 
@@ -231,16 +239,18 @@ export const atenderTecnico = async (req, res) => {
 
 export const seguimientoPublico = async (req, res) => {
   const identificador = String(req.params.uuid || '').trim().toUpperCase();
-  const esCodigoTicket = /^TK-[A-Z0-9]+$/i.test(identificador);
+  const esCodigoTicket = REGEX_CODIGO_TICKET.test(identificador);
 
   if (!esUUID(identificador) && !esCodigoTicket) {
     throw abortar(404, 'Ticket no encontrado');
   }
 
-  const condicion = esUUID(identificador) ? 'uuid = ?' : `${SQL_CODIGO_TICKET} = ?`;
+  const condicion = esUUID(identificador) ? 'uuid = ?' : 'codigo = ?';
 
   const [filas] = await pool.query(
-    `SELECT ${SQL_CODIGO_TICKET} AS codigo, asunto, estado, created_at, fecha_asignacion, fecha_cierre
+    `SELECT uuid, codigo, asunto, estado, cliente_conforme, aprobado_por,
+            fecha_conformidad, motivo_no_conforme, created_at, fecha_asignacion,
+            fecha_inicio_servicio, fecha_cierre
      FROM tickets WHERE ${condicion}`,
     [identificador]
   );
@@ -249,4 +259,52 @@ export const seguimientoPublico = async (req, res) => {
 
   res.set('Cache-Control', 'no-store');
   res.json(filas[0]);
+};
+
+export const registrarConformidadPublico = async (req, res) => {
+  if (!esUUID(String(req.params.uuid || '').trim())) {
+    throw abortar(404, 'Ticket no encontrado');
+  }
+
+  const { conforme, aprobadoPor, motivo } = validarConformidad(req.body);
+
+  const resultado = await registrarConformidad(req.params.uuid, { conforme, aprobadoPor, motivo });
+
+  if (resultado !== 'ok') {
+    const [codigo, message] = ERRORES_TRANSICION[resultado];
+    return res.status(codigo).json({ message });
+  }
+
+  const [filas] = await pool.query(
+    `SELECT uuid, codigo, empresa_solicitante, nombre_solicitante, asunto,
+            cliente_conforme, aprobado_por, motivo_no_conforme, fecha_conformidad
+     FROM tickets WHERE uuid = ?`,
+    [req.params.uuid]
+  );
+
+  const ticket = filas[0];
+
+  bitacora(
+    'publico',
+    `Ticket ${ticket.codigo} → el cliente lo marcó como ${conforme ? 'conforme' : 'no conforme'}`
+  );
+
+  if (!conforme) {
+    const aviso = await emailService.enviarAvisoNoConforme({
+      codigo: ticket.codigo,
+      empresa: ticket.empresa_solicitante,
+      nombre: ticket.nombre_solicitante,
+      asunto: ticket.asunto,
+      motivo,
+      url: urlSeguimiento(ticket.uuid)
+    });
+
+    if (aviso.omitido) {
+      bitacora('publico', `Aviso de no conforme → omitido, TICKET_NOTIFICACION_EMAIL está vacía`);
+    } else if (!aviso.success) {
+      bitacora('publico', `Aviso de no conforme → no se pudo enviar: ${aviso.error}`);
+    }
+  }
+
+  res.json(ticket);
 };

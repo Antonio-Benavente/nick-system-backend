@@ -9,9 +9,15 @@ import {
 } from '../controllers/tecnico.controller.js';
 import {
   atenderTecnico,
-  iniciarTecnico,
+  iniciarServicioTecnico,
   misTickets
 } from '../controllers/ticketsController.js';
+import {
+  agregarGasto,
+  borrarGasto,
+  editarGasto,
+  verGastos
+} from '../controllers/gastos.controller.js';
 import { getClientes } from '../controllers/clientes.controller.js';
 import authMiddleware from '../middlewares/auth.middleware.js';
 import roleMiddleware from '../middlewares/role.middleware.js';
@@ -37,8 +43,16 @@ router.get('/clientes', asyncHandler(getClientes));
 
 router.get('/mis-tickets', asyncHandler(misTickets));
 
-router.patch('/tickets/:uuid/iniciar', asyncHandler(iniciarTecnico));
+router.patch('/tickets/:uuid/iniciar-servicio', asyncHandler(iniciarServicioTecnico));
 
 router.patch('/tickets/:uuid/atender', asyncHandler(atenderTecnico));
+
+router.get('/tickets/:uuid/gastos', asyncHandler(verGastos));
+
+router.post('/tickets/:uuid/gastos', asyncHandler(agregarGasto));
+
+router.put('/tickets/:uuid/gastos/:gasto_uuid', asyncHandler(editarGasto));
+
+router.delete('/tickets/:uuid/gastos/:gasto_uuid', asyncHandler(borrarGasto));
 
 export default router;

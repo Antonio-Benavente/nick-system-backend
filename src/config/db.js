@@ -14,6 +14,7 @@ console.log('🔌 Creando pool de conexiones MySQL...');
 
 const pool = mysql.createPool({
   uri: process.env.DATABASE_URL,
+  timezone: 'Z',
   waitForConnections: true,
   connectionLimit: 10,
   maxIdle: 10,
