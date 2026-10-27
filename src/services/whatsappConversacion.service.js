@@ -97,6 +97,16 @@ export const registrarMensajeProcesado = async (mensajeOrigen, numero) => {
   }
 };
 
+/**
+ * Si el envío falló, la fila de idempotencia ya no sirve (el reintento de Meta
+ * la bloquearía y el cliente jamás recibiría el mensaje). La liberamos.
+ */
+export const descartarMensajeProcesado = async (mensajeOrigen) => {
+  if (!mensajeOrigen) return;
+
+  await pool.query('DELETE FROM whatsapp_mensajes WHERE mensaje_origen = ?', [mensajeOrigen]);
+};
+
 export const limpiarConversacionesVencidas = async () => {
   const [resultado] = await pool.query(
     'DELETE FROM whatsapp_conversaciones WHERE updated_at < DATE_SUB(NOW(), INTERVAL ? MINUTE)',

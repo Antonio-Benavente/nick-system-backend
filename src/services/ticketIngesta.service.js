@@ -7,7 +7,8 @@ import {
   abrirConversacion,
   cerrarConversacion,
   sumarIntento,
-  registrarMensajeProcesado
+  registrarMensajeProcesado,
+  descartarMensajeProcesado
 } from './whatsappConversacion.service.js';
 
 const LIMITES = { empresa: 150, nombre: 100, asunto: 150, descripcion: 2000 };
@@ -540,7 +541,15 @@ const responder = async (telefono, mensajeId, cuerpo) => {
     return { success: true, duplicado: true };
   }
 
-  return enviarMensajeTexto(telefono, cuerpo);
+  const respuesta = await enviarMensajeTexto(telefono, cuerpo);
+
+  // El registro de idempotencia solo cuenta si el envío salió: si Meta lo
+  // rechazó lo liberamos para que su reintento pueda volver a intentarlo.
+  if (!respuesta.success) {
+    await descartarMensajeProcesado(mensajeId).catch(() => {});
+  }
+
+  return respuesta;
 };
 
 export const ingestarWhatsapp = async (mensaje, contacto) => {
@@ -550,7 +559,25 @@ export const ingestarWhatsapp = async (mensaje, contacto) => {
   const contenido = contenidoTexto || `[Mensaje recibido de tipo ${mensaje.type || 'desconocido'}]`;
   const mensajeId = mensaje.id || `sin-id-${Date.now()}`;
 
-  // 0) Audio, foto o documento: no hay nada que interpretar.
+  // 0) Evento sin remitente: no hay a quién responder y Meta devolvería
+  // "The parameter to is required". Se bitacorea el objeto crudo (sin el texto
+  // del cliente) para identificar qué nos entregó Meta exactamente.
+  if (!telefono) {
+    const depurar = (objeto) =>
+      JSON.stringify(objeto, (clave, valor) =>
+        ['text', 'body', 'caption', 'audio', 'image', 'video', 'document', 'sticker', 'location', 'contacts'].includes(clave)
+          ? '[contenido oculto]'
+          : valor
+      );
+
+    bitacora(
+      'whatsapp',
+      `Evento sin remitente (tipo ${mensaje.type || 'desconocido'}), lo ignoro. mensaje=${depurar(mensaje)} contacto=${depurar(contacto || {})}`
+    );
+    return { creado: false, sin_remitente: true };
+  }
+
+  // 1) Audio, foto o documento: no hay nada que interpretar.
   if (!contenidoTexto && TIPOS_SIN_TEXTO[mensaje.type]) {
     await responder(telefono, mensajeId, mensajeSinTexto(TIPOS_SIN_TEXTO[mensaje.type]));
     bitacora(
@@ -607,6 +634,12 @@ export const ingestarWhatsapp = async (mensaje, contacto) => {
       : mensajeBienvenida();
 
     const respuesta = await responder(telefono, mensajeId, cuerpo);
+
+    // Reenvío de Meta: `responder` ya registró la bitácora correspondiente y
+    // el intento no avanzó, así que no repetimos el aviso como si hubiese salido.
+    if (respuesta.duplicado) {
+      return { creado: false, esperando_datos: true, faltantes, mensaje: respuesta };
+    }
 
     if (!respuesta.success) {
       bitacora(
