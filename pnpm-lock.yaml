@@ -35,6 +35,9 @@ importers:
       mysql2:
         specifier: ^3.24.6
         version: 3.24.6(@types/node@26.2.0)
+      node-cron:
+        specifier: ^4.6.0
+        version: 4.6.0
       resend:
         specifier: ^4.8.0
         version: 4.8.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -449,6 +452,10 @@ packages:
   negotiator@0.6.4:
     resolution: {integrity: sha512-myRT3DiWPHqho5PrJaIRyaMv2kgYf0mUVgBNOYMuCH5Ki1yEiQaf/ZJuQ62nvpc44wL5WDbTX7yGJi1Neevw8w==}
     engines: {node: '>= 0.6'}
+
+  node-cron@4.6.0:
+    resolution: {integrity: sha512-Si/bzYiKRHOB8/a99T2+SDGN582ONDMSTlJr5oCkT6GtnqPjZ2s10eoQRYkW9ZHwjVxONL+W8Fb+qR0AHMQsdg==}
+    engines: {node: '>=20'}
 
   nodemon@3.1.14:
     resolution: {integrity: sha512-jakjZi93UtB3jHMWsXL68FXSAosbLfY0In5gtKq3niLSkrWznrVBzXFNOEMJUfc9+Ke7SHWoAZsiMkNP3vq6Jw==}
@@ -1068,6 +1075,8 @@ snapshots:
   negotiator@0.6.3: {}
 
   negotiator@0.6.4: {}
+
+  node-cron@4.6.0: {}
 
   nodemon@3.1.14:
     dependencies:

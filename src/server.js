@@ -1,4 +1,5 @@
 import "./config/logs.js";
+import cron from 'node-cron';
 import app from "./app.js";
 import pool from "./config/db.js";
 import {
@@ -7,7 +8,8 @@ import {
 } from "./services/whatsappConversacion.service.js";
 import { iniciarWarmup } from "./services/warmup.service.js";
 
-const INTERVALO_LIMPIEZA_MS = 15 * 60 * 1000;
+const INTERVALO_LIMPIEZA_MINUTOS = 15;
+const ZONA_HORARIA = 'America/Lima';
 const APAGADO_MAXIMO_MS = 10000;
 
 if (!process.env.JWT_SECRET) {
@@ -20,7 +22,7 @@ const PORT = process.env.PORT || 4000;
 let cerrando = false;
 
 const iniciarLimpieza = () => {
-  const tarea = setInterval(async () => {
+  const tarea = cron.schedule(`*/${INTERVALO_LIMPIEZA_MINUTOS} * * * *`, async () => {
     try {
       const borradas = await limpiarConversacionesVencidas();
       if (borradas > 0) {
@@ -40,9 +42,8 @@ const iniciarLimpieza = () => {
     } catch (error) {
       console.warn('⚠️ Fallo purgando mensajes de WhatsApp:', error.message);
     }
-  }, INTERVALO_LIMPIEZA_MS);
+  }, { timezone: ZONA_HORARIA });
 
-  tarea.unref();
   return tarea;
 };
 
@@ -69,15 +70,15 @@ async function startServer() {
   });
 
   const tareaLimpieza = iniciarLimpieza();
-  const tareaWarmup = iniciarWarmup();
+  const tareasWarmup = iniciarWarmup();
 
   const shutdown = (senal) => {
     if (cerrando) return;
     cerrando = true;
 
     console.log(`🛑 Cerrando servidor (${senal})...`);
-    clearInterval(tareaLimpieza);
-    clearInterval(tareaWarmup);
+    tareaLimpieza.stop();
+    (tareasWarmup || []).forEach((tarea) => tarea.stop());
 
     server.close(() => {
       pool.end().finally(() => process.exit(0));

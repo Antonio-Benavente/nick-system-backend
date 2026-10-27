@@ -1,5 +1,8 @@
+import cron from 'node-cron';
+
 const TIMEOUT_PING_MS = 10000;
 const HORARIO_POR_DEFECTO = '08:00-22:00';
+const ZONA_HORIZONTE = 'America/Lima';
 
 const aMinutos = (texto) => {
   const coincidencia = /^(\d{1,2}):(\d{2})$/.exec(String(texto || '').trim());
@@ -82,16 +85,31 @@ export const iniciarWarmup = () => {
 
   const horario = process.env.WARMUP_HORARIO || HORARIO_POR_DEFECTO;
 
-  const tarea = setInterval(() => {
-    if (!dentroDelHorario(horario)) return;
-    void ejecutar(url);
-  }, minutos * 60 * 1000);
+  // `dentroDelHorario` resuelve rangos arbitrarios ("HH:MM-HH:MM") que un campo
+  // de hora de cron no puede expresar, así que la expresión solo fija el paso.
+  const tareas = [
+    cron.schedule(`*/${Math.max(1, Math.floor(minutos))} * * * *`, () => {
+      if (!dentroDelHorario(horario)) return;
+      void ejecutar(url);
+    }, { timezone: ZONA_HORIZONTE })
+  ];
 
-  if (typeof tarea.unref === 'function') tarea.unref();
+  // Ping fijo a la hora de apertura del horario: tras la noche el servidor pudo
+  // quedar dormido, y este es el encendido garantizado del día laboral.
+  const [inicio] = String(horario).split('-');
+  const apertura = /^(\d{1,2}):(\d{2})$/.exec(String(inicio || '').trim());
+
+  if (apertura) {
+    const [, hora, minuto] = apertura;
+    tareas.push(cron.schedule(`${minuto} ${hora} * * *`, () => void ejecutar(url), {
+      timezone: ZONA_HORIZONTE
+    }));
+  }
 
   console.log(
     `🔄 Mantenimiento automático cada ${minutos} min contra ${url} (horario ${horario}, hora de Lima)`
+    + (apertura ? `; ping fijo diario a las ${apertura[0]}` : '')
   );
 
-  return tarea;
+  return tareas;
 };
