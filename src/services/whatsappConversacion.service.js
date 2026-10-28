@@ -25,20 +25,32 @@ export const hayConversacionAbierta = async (numero) => {
   return filas.length > 0;
 };
 
-// Estado pendiente: cuántos intentos lleva el cliente sin completar los datos.
+// Estado pendiente: cuántos intentos lleva el cliente sin completar los datos
+// y qué datos ya aportó (JSON en `datos`, puede ser NULL).
+const parsearDatos = (texto) => {
+  if (!texto) return {};
+
+  try {
+    const valor = JSON.parse(texto);
+    return valor && typeof valor === 'object' && !Array.isArray(valor) ? valor : {};
+  } catch {
+    return {};
+  }
+};
+
 export const obtenerConversacion = async (numero) => {
   if (!numero) return null;
 
   const [filas] = await pool.query(
-    `SELECT numero, mensaje_origen, intentos FROM whatsapp_conversaciones
+    `SELECT numero, mensaje_origen, intentos, datos FROM whatsapp_conversaciones
      WHERE numero = ? AND updated_at >= DATE_SUB(NOW(), INTERVAL ? MINUTE)`,
     [numero, minutosVentana()]
   );
 
-  return filas[0] || null;
+  return filas[0] ? { ...filas[0], datos: parsearDatos(filas[0].datos) } : null;
 };
 
-export const abrirConversacion = async (numero, mensajeOrigen) => {
+export const abrirConversacion = async (numero, mensajeOrigen, configurarDatos) => {
   if (!numero || !mensajeOrigen) return false;
 
   const [repetido] = await pool.query(
@@ -50,11 +62,23 @@ export const abrirConversacion = async (numero, mensajeOrigen) => {
 
   await pool.query('DELETE FROM whatsapp_conversaciones WHERE numero = ?', [numero]);
   await pool.query(
-    'INSERT INTO whatsapp_conversaciones (numero, mensaje_origen, intentos) VALUES (?, ?, 0)',
-    [numero, mensajeOrigen]
+    'INSERT INTO whatsapp_conversaciones (numero, mensaje_origen, intentos, datos) VALUES (?, ?, 0, ?)',
+    [numero, mensajeOrigen, configurarDatos || null]
   );
 
   return true;
+};
+
+/**
+ * Guarda los campos acumulados de una conversación (reemplaza lo anterior:
+ * quien llama debe mandar la unión completa de los datos conocidos).
+ */
+export const guardarDatos = async (numero, datos) => {
+  if (!numero) return;
+
+  await pool.query('UPDATE whatsapp_conversaciones SET datos = ? WHERE numero = ?', [
+    JSON.stringify(datos && typeof datos === 'object' ? datos : {})
+  ]);
 };
 
 export const sumarIntento = async (numero) => {
@@ -69,6 +93,16 @@ export const sumarIntento = async (numero) => {
   ]);
 
   return filas[0]?.intentos ?? 0;
+};
+
+/** Fija el contador de intentos al valor indicado (migraciones de conversación). */
+export const establecerIntentos = async (numero, valor) => {
+  if (!numero) return;
+
+  await pool.query('UPDATE whatsapp_conversaciones SET intentos = ? WHERE numero = ?', [
+    Math.max(0, Number(valor) || 0),
+    numero
+  ]);
 };
 
 export const cerrarConversacion = async (numero) => {

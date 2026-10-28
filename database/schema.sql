@@ -224,9 +224,13 @@ CREATE TABLE IF NOT EXISTS claves_auditoria (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS whatsapp_conversaciones (
-  numero VARCHAR(20) NOT NULL,
+  numero VARCHAR(200) NOT NULL,
   mensaje_origen VARCHAR(255) NOT NULL,
   intentos INT NOT NULL DEFAULT 0,
+  -- Campos ya aportados por el cliente. Se usa sobre todo con remitentes que
+  -- escribirton ANTES de compartir su número (BSUID): los datos quedan guardados
+  -- y, al llegar el número, el ticket se crea sin pedir nada otra vez.
+  datos TEXT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
@@ -239,7 +243,7 @@ CREATE TABLE IF NOT EXISTS whatsapp_conversaciones (
 -- responderle al cliente. Si Meta reintenta, la segunda pasada no vuelve a escribir.
 CREATE TABLE IF NOT EXISTS whatsapp_mensajes (
   mensaje_origen VARCHAR(255) NOT NULL,
-  numero VARCHAR(20) DEFAULT NULL,
+  numero VARCHAR(200) DEFAULT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
   PRIMARY KEY (mensaje_origen),

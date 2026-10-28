@@ -1,12 +1,14 @@
 import { crearTicket, ticketPorMensajeExterno, ultimosTicketsPorContacto } from './ticketService.js';
 import emailService from './email.service.js';
-import { enviarMensajeTexto } from './whatsapp.service.js';
+import { enviarMensajeTexto, enviarSolicitudContacto } from './whatsapp.service.js';
 import { bitacora, enmascararEmail, enmascararTelefono } from './bitacora.service.js';
 import {
   obtenerConversacion,
   abrirConversacion,
   cerrarConversacion,
+  guardarDatos,
   sumarIntento,
+  establecerIntentos,
   registrarMensajeProcesado,
   descartarMensajeProcesado
 } from './whatsappConversacion.service.js';
@@ -480,6 +482,40 @@ export const mensajeSinTexto = (tipo) =>
     ...LISTA_CAMPOS
   ].join('\n');
 
+// Meta no manda el teléfono de quienes adoptaron un username (Business-scoped
+// User ID, formato PAIS.lo-que-sea). Vía principal: el botón oficial; como
+// alternativa, escribir el número como texto. Lo ya aportado queda guardado.
+export const mensajePideNumero = () =>
+  [
+    'Para crear tu ticket necesito tu número de WhatsApp: ese dato no me llegó. 📱',
+    '',
+    'Toca el botón *Compartir mi número* de abajo,',
+    'o escríbeme en un mensaje aparte solo tu número, con prefijo de país (por ejemplo *51987654321*).',
+    '',
+    'Después, escríbeme los datos de tu caso en un solo mensaje:',
+    '',
+    ...LISTA_CAMPOS,
+    '',
+    '*Ejemplo:*',
+    ...EJEMPLO_CAMPOS
+  ].join('\n');
+
+// Va dentro del cuerpo del botón: número que falta + aviso de que lo ya
+// escrito se conserva, con la alternativa de escribir el número como texto.
+const pedirNumeroConFaltantes = (recibidos, faltantes) => [
+  'Para crear tu ticket necesito tu número de WhatsApp. 📱',
+  '',
+  'Toca el botón *Compartir mi número* de abajo,',
+  'o escríbeme en un mensaje aparte solo tu número, con prefijo de país (por ejemplo *51987654321*).',
+  '',
+  recibidos.length
+    ? `Recibí tu ${enumerar(recibidos)}. Completa con esto en tu siguiente mensaje:`
+    : 'En tu siguiente mensaje envía:',
+  ...faltantes.map((campo) => `• ${ETIQUETA_CAMPO[campo] || campo}`),
+  '',
+  'Lo que ya escribiste queda guardado, no necesitas repetirlo.'
+].join('\n');
+
 const enumerar = (palabras) => {
   if (palabras.length <= 1) return palabras.join('');
   return `${palabras.slice(0, -1).join(', ')} y ${palabras[palabras.length - 1]}`;
@@ -527,6 +563,63 @@ const diasConsultaTicket = () => {
 };
 
 /**
+ * Número compartido con el botón REQUEST_CONTACT_INFO (origin contact_request,
+ * el usuario mismo) o con una tarjeta: Meta lo entrega en phones[].phone.
+ */
+const telefonoCompartido = (mensaje) => {
+  if (mensaje.type !== 'contacts') return '';
+
+  for (const tarjeta of mensaje.contacts || []) {
+    for (const item of tarjeta.phones || []) {
+      const numero = String(item.phone || item.wa_id || '').replace(/\D/g, '');
+      if (numero) return numero;
+    }
+  }
+
+  return '';
+};
+
+/**
+ * Número escrito como texto: solo si el mensaje entero es dígitos (con los
+ * separadores habituales). Si no trae prefijo y tiene 9 dígitos (formato
+ * local peruano) se le antepone el prefijo del país configurado.
+ */
+const telefonoEscrito = (texto) => {
+  const digitos = String(texto || '')
+    .replace(/[+\s().-]/g, '')
+    .replace(/^0+/,'');
+
+  if (digitos.length < 9 || digitos.length > 15) return '';
+  if (!/^\d+$/.test(digitos)) return '';
+
+  const prefijo = process.env.WHATSAPP_PREFIJO_PAIS || '51';
+  return digitos.length === 9 ? prefijo + digitos : digitos;
+};
+
+/**
+ * Pide el número con el botón de Meta, con la misma idempotencia de `responder`.
+ */
+const responderPedirContacto = async (bsuid, mensajeId, cuerpo) => {
+  const esNuevo = await registrarMensajeProcesado(mensajeId, bsuid);
+
+  if (!esNuevo) {
+    bitacora(
+      'whatsapp',
+      `Mensaje de usuario ${enmascararTelefono(bsuid)} → reenvío de Meta, no respondí otra vez`
+    );
+    return { success: true, duplicado: true };
+  }
+
+  const respuesta = await enviarSolicitudContacto(bsuid, cuerpo);
+
+  if (!respuesta.success) {
+    await descartarMensajeProcesado(mensajeId).catch(() => {});
+  }
+
+  return respuesta;
+};
+
+/**
  * Envía una respuesta del bot garantizando una sola vez por wamid. El registro va
  * ANTES del envío para que un reintento de Meta no produzca un segundo mensaje.
  */
@@ -552,17 +645,165 @@ const responder = async (telefono, mensajeId, cuerpo) => {
   return respuesta;
 };
 
+/**
+ * Crea el ticket a partir de los datos acumulados y le responde a `remitente`
+ * con el acuse. `remitente` puede ser un teléfono o un BSUID: enviarMensajeTexto
+ * manda a cada uno por su campo correspondiente (to / recipient).
+ */
+const registrarTicketYAcuse = async ({
+  datos,
+  fuenteTexto,
+  permitirLibre,
+  contactoOrigen,
+  nombreContacto,
+  wamid,
+  remitente
+}) => {
+  const etiqueta = enmascararTelefono(remitente);
+
+  const empresa =
+    recortar(datos.empresa, LIMITES.empresa) || process.env.TICKET_EMPRESA_WHATSAPP || 'WhatsApp';
+  const nombre =
+    recortar(datos.nombre, LIMITES.nombre) || recortar(nombreContacto, LIMITES.nombre) || 'Contacto';
+  const asunto =
+    recortar(datos.asunto, LIMITES.asunto) ||
+    recortar(primeraLinea(fuenteTexto), LIMITES.asunto) ||
+    'Solicitud por WhatsApp';
+
+  // Si los datos vinieron etiquetados, repetir empresa/nombre/asunto como
+  // descripción solo confunde al técnico. El texto libre sí se conserva entero.
+  const descripcion =
+    recortar(datos.descripcion, LIMITES.descripcion) ||
+    (permitirLibre ? recortar(fuenteTexto, LIMITES.descripcion) : '') ||
+    'Sin descripción adicional';
+
+  const ticket = await registrar({
+    empresa,
+    nombre,
+    asunto,
+    descripcion,
+    canal: 'whatsapp',
+    contactoOrigen,
+    mensajeExternoId: wamid || null
+  });
+
+  if (ticket.duplicado) {
+    bitacora('whatsapp', `Mensaje de ${etiqueta} → ese mensaje ya tenía un ticket`);
+
+    // Reintento del webhook. La clave `acuse:<wamid>` ya quedó registrada en el
+    // intento anterior, así que `responder` sale sin escribir. Solo entra aquí el
+    // caso en que el ticket se creó pero el acuse se perdió: entonces sí lo reenvía.
+    if (ticket.codigo) {
+      await responder(
+        remitente,
+        `acuse:${wamid}`,
+        mensajeTicketCreado(ticket.codigo, urlSeguimiento(ticket.uuid))
+      );
+    }
+
+    return ticket;
+  }
+
+  if (!ticket.creado) return ticket;
+
+  const notificacion = await avisarInterno(
+    ticket,
+    { empresa, nombre, asunto, descripcion, contactoOrigen },
+    'whatsapp',
+    'whatsapp'
+  );
+
+  if (remitente) {
+    const acuse = await responder(
+      remitente,
+      `acuse:${wamid}`,
+      mensajeTicketCreado(ticket.codigo, urlSeguimiento(ticket.uuid))
+    );
+
+    if (!acuse.success) {
+      bitacora('whatsapp', `Mensaje de ${etiqueta} → creé el ticket ${ticket.codigo} pero el acuse falló: ${acuse.error}`);
+      return { ...ticket, acuse, notificacion };
+    }
+
+    bitacora('whatsapp', `Mensaje de ${etiqueta} → creé el ticket ${ticket.codigo} y le devolví el código`);
+
+    return { ...ticket, acuse, notificacion };
+  }
+
+  bitacora('whatsapp', `Mensaje de ${etiqueta} → creé el ticket ${ticket.codigo}`);
+
+  return { ...ticket, notificacion };
+};
+
+/**
+ * Llega un número real de un remitente que solo se podía identificar por
+ * BSUID: termina la conversación con el BSUID y retoma (o crea el ticket)
+ * bajo el número recién compartido, sin pedirle nada de nuevo.
+ */
+const retomarConNumero = async (bsuid, numero, mensajeId, nombreContacto) => {
+  const previa = await obtenerConversacion(bsuid);
+  const datosPrevios = previa?.datos || {};
+  const faltantes = camposFaltantes(datosPrevios);
+
+  if (previa) await cerrarConversacion(bsuid);
+
+  if (faltantes.length) {
+    // Datos incompletos: la conversación se reabre con el número, conservando
+    // lo ya aportado y los intentos, para que el forzado siga aplicando.
+    const recibidos = CAMPOS_OBLIGATORIOS.filter((campo) => !faltantes.includes(campo));
+
+    await abrirConversacion(numero, mensajeId);
+    await guardarDatos(numero, datosPrevios);
+    const intentosPrevios = Number(previa?.intentos || 0);
+    if (intentosPrevios > 0) await establecerIntentos(numero, intentosPrevios);
+
+    const respuesta = await responder(numero, mensajeId, mensajeFaltanDatos(recibidos, faltantes));
+
+    bitacora(
+      'whatsapp',
+      `Usuario ${enmascararTelefono(bsuid)} compartió el número ${enmascararTelefono(numero)} → ${
+        respuesta.success ? `sigue la conversación con esos datos (faltan: ${faltantes.join(', ')})` : `el aviso falló: ${respuesta.error}`
+      }`
+    );
+
+    return { creado: false, telefono_recibido: true, mensaje: respuesta };
+  }
+
+  // Datos completos: el ticket se crea de una vez con lo acumulado.
+  const resultado = await registrarTicketYAcuse({
+    datos: datosPrevios,
+    fuenteTexto: datosPrevios.descripcion || '',
+    permitirLibre: true,
+    contactoOrigen: recortar(numero, LIMITES.empresa) || null,
+    nombreContacto,
+    wamid: mensajeId,
+    remitente: numero
+  });
+
+  bitacora(
+    'whatsapp',
+    `Usuario ${enmascararTelefono(bsuid)} compartió el número ${enmascararTelefono(numero)} → ${
+      resultado.creado
+        ? `creé el ticket ${resultado.codigo} con sus datos guardados, sin pedirle nada de nuevo`
+        : `no se pudo crear el ticket con sus datos guardados`
+    }`
+  );
+
+  return { ...resultado, telefono_recibido: true };
+};
+
 export const ingestarWhatsapp = async (mensaje, contacto) => {
   const telefono = mensaje.from || (contacto && contacto.wa_id) || '';
+  const bsuid = (mensaje.from_user_id || (contacto && contacto.user_id) || '').trim();
   const nombreContacto = (contacto && contacto.profile && contacto.profile.name) || telefono;
   const contenidoTexto = contenidoWhatsapp(mensaje).trim();
   const contenido = contenidoTexto || `[Mensaje recibido de tipo ${mensaje.type || 'desconocido'}]`;
   const mensajeId = mensaje.id || `sin-id-${Date.now()}`;
 
-  // 0) Evento sin remitente: no hay a quién responder y Meta devolvería
-  // "The parameter to is required". Se bitacorea el objeto crudo (sin el texto
-  // del cliente) para identificar qué nos entregó Meta exactamente.
-  if (!telefono) {
+  // 0) Evento sin remitente: no hay a quién responder ni manera de identificar
+  // al usuario. Se bitacorea el objeto crudo (sin el texto del cliente) para
+  // identificar qué nos entregó Meta exactamente.
+  if (!telefono && !bsuid) {
     const depurar = (objeto) =>
       JSON.stringify(objeto, (clave, valor) =>
         ['text', 'body', 'caption', 'audio', 'image', 'video', 'document', 'sticker', 'location', 'contacts'].includes(clave)
@@ -575,6 +816,92 @@ export const ingestarWhatsapp = async (mensaje, contacto) => {
       `Evento sin remitente (tipo ${mensaje.type || 'desconocido'}), lo ignoro. mensaje=${depurar(mensaje)} contacto=${depurar(contacto || {})}`
     );
     return { creado: false, sin_remitente: true };
+  }
+
+  // 0.5) El usuario compartió su número (tocó el botón REQUEST_CONTACT_INFO o
+  // nos pasó su tarjeta). Solo importa para remitentes sin teléfono.
+  if (!telefono && mensaje.type === 'contacts') {
+    const numero = telefonoCompartido(mensaje);
+
+    if (!numero) {
+      const respuesta = await responderPedirContacto(bsuid, mensajeId, mensajePideNumero());
+      bitacora(
+        'whatsapp',
+        `Mensaje de usuario ${enmascararTelefono(bsuid)} → compartió un contacto sin teléfono${respuesta.duplicado ? ' (reenvío de Meta)' : ' utilizable'}`
+      );
+      return { creado: false, sin_telefono: true, mensaje: respuesta };
+    }
+
+    return await retomarConNumero(bsuid, numero, mensajeId, nombreContacto);
+  }
+
+  // Eventos internos de Meta (cambios de número en 'system', reacciones y
+  // ediciones) no son peticiones del usuario: no generan respuesta ni cuentan
+  // intentos en ningún remitente, solo se registran.
+  if (mensaje.type === 'system' || mensaje.type === 'reaction' || mensaje.type === 'edit') {
+    bitacora('whatsapp', `Evento de ${mensaje.type}, no generó respuesta. remitente=${enmascararTelefono(telefono || bsuid)}`);
+    return { creado: false, evento_interno: true };
+  }
+
+  // 0.6) Remitente identificable solo por BSUID: adoptó un username de Meta y
+  // por eso el webhook no trae su teléfono (por ejemplo, contacto de hace más
+  // de 30 días). Se acumulan los datos que aporte y se le pide el número con
+  // el botón oficial; como alternativa acepta el número escrito como texto,
+  // y al llegar, el ticket sale sin repetir nada.
+  if (!telefono) {
+    // Si el mensaje entero son dígitos, ya nos dio su número.
+    if (contenidoTexto && /^\d/.test(contenidoTexto)) {
+      const numero = telefonoEscrito(contenidoTexto);
+
+      if (numero) {
+        bitacora('whatsapp', `Mensaje de usuario ${enmascararTelefono(bsuid)} → me escribió su número como texto`);
+        return await retomarConNumero(bsuid, numero, mensajeId, nombreContacto);
+      }
+    }
+
+    const conversacion = await obtenerConversacion(bsuid);
+    const permitirLibre = Boolean(conversacion);
+
+    // Acumular sin pisar: lo nuevo completa lo que faltaba.
+    const acumulados = { ...(conversacion?.datos || {}) };
+    const interpretados = interpretarMensaje(contenido, { permitirLibre });
+    for (const campo of CAMPOS_OBLIGATORIOS) {
+      if (interpretados[campo] && !acumulados[campo]) {
+        acumulados[campo] = recortar(interpretados[campo], LIMITES[campo] || LIMITES.asunto);
+      }
+    }
+    if (interpretados.descripcion && !acumulados.descripcion) {
+      acumulados.descripcion = recortar(interpretados.descripcion, LIMITES.descripcion);
+    }
+
+    const faltantes = camposFaltantes(acumulados);
+    const recibidos = CAMPOS_OBLIGATORIOS.filter((campo) => !faltantes.includes(campo));
+
+    // Persistir el avance antes de responder.
+    if (!conversacion) await abrirConversacion(bsuid, mensajeId);
+    await sumarIntento(bsuid);
+    await guardarDatos(bsuid, acumulados);
+
+    const respuesta = await responderPedirContacto(
+      bsuid,
+      mensajeId,
+      faltantes.length
+        ? pedirNumeroConFaltantes(recibidos, faltantes)
+        : mensajePideNumero()
+    );
+
+    bitacora(
+      'whatsapp',
+      `Mensaje de usuario ${enmascararTelefono(bsuid)} (sin teléfono en el webhook) → ${
+        respuesta.duplicado
+          ? 'reenvío de Meta, no respondí otra vez'
+          : respuesta.success
+            ? `le pedí que comparta su número con el botón (guardé: ${recibidos.length ? recibidos.join(', ') : 'nada'}, faltan: ${faltantes.length ? faltantes.join(', ') : 'nada'})`
+            : `no pude pedirle el número: ${respuesta.error}`
+      }`
+    );
+
+    return { creado: false, sin_telefono: true, mensaje: respuesta };
   }
 
   // 1) Audio, foto o documento: no hay nada que interpretar.
@@ -668,77 +995,13 @@ export const ingestarWhatsapp = async (mensaje, contacto) => {
 
   await cerrarConversacion(telefono);
 
-  const empresa =
-    recortar(datos.empresa, LIMITES.empresa) || process.env.TICKET_EMPRESA_WHATSAPP || 'WhatsApp';
-  const nombre =
-    recortar(datos.nombre, LIMITES.nombre) || recortar(nombreContacto, LIMITES.nombre) || 'Contacto';
-  const asunto =
-    recortar(datos.asunto, LIMITES.asunto) ||
-    recortar(primeraLinea(contenido), LIMITES.asunto) ||
-    'Solicitud por WhatsApp';
-
-  // Si los datos vinieron etiquetados, repetir empresa/nombre/asunto como
-  // descripción solo confunde al técnico. El texto libre sí se conserva entero.
-  const descripcion =
-    recortar(datos.descripcion, LIMITES.descripcion) ||
-    (permitirLibre ? recortar(contenido, LIMITES.descripcion) : '') ||
-    'Sin descripción adicional';
-  const contactoOrigen = recortar(telefono, LIMITES.empresa) || null;
-
-  const ticket = await registrar({
-    empresa,
-    nombre,
-    asunto,
-    descripcion,
-    canal: 'whatsapp',
-    contactoOrigen,
-    mensajeExternoId: mensaje.id || null
+  return await registrarTicketYAcuse({
+    datos,
+    fuenteTexto: contenido,
+    permitirLibre,
+    contactoOrigen: recortar(telefono, LIMITES.empresa) || null,
+    nombreContacto,
+    wamid: mensaje.id || null,
+    remitente: telefono
   });
-
-  if (ticket.duplicado) {
-    bitacora('whatsapp', `Mensaje de ${enmascararTelefono(telefono)} → ese mensaje ya tenía un ticket`);
-
-    // Reintento del webhook. La clave `acuse:<wamid>` ya quedó registrada en el
-    // intento anterior, así que `responder` sale sin escribir. Solo entra aquí el
-    // caso en que el ticket se creó pero el acuse se perdió: entonces sí lo reenvía.
-    if (ticket.codigo) {
-      await responder(
-        telefono,
-        `acuse:${mensajeId}`,
-        mensajeTicketCreado(ticket.codigo, urlSeguimiento(ticket.uuid))
-      );
-    }
-
-    return ticket;
-  }
-
-  if (!ticket.creado) return ticket;
-
-  const notificacion = await avisarInterno(
-    ticket,
-    { empresa, nombre, asunto, descripcion, contactoOrigen },
-    'whatsapp',
-    'whatsapp'
-  );
-
-  if (telefono) {
-    const acuse = await responder(
-      telefono,
-      `acuse:${mensajeId}`,
-      mensajeTicketCreado(ticket.codigo, urlSeguimiento(ticket.uuid))
-    );
-
-    if (!acuse.success) {
-      bitacora('whatsapp', `Mensaje de ${enmascararTelefono(telefono)} → creé el ticket ${ticket.codigo} pero el acuse falló: ${acuse.error}`);
-      return { ...ticket, acuse, notificacion };
-    }
-
-    bitacora('whatsapp', `Mensaje de ${enmascararTelefono(telefono)} → creé el ticket ${ticket.codigo} y le devolví el código`);
-
-    return { ...ticket, acuse, notificacion };
-  }
-
-  bitacora('whatsapp', `Mensaje de ${enmascararTelefono(telefono)} → creé el ticket ${ticket.codigo}`);
-
-  return { ...ticket, notificacion };
 };
