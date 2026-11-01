@@ -149,6 +149,7 @@ CREATE TABLE IF NOT EXISTS tickets (
   vinculado_por CHAR(36) DEFAULT NULL,
   vinculado_at DATETIME DEFAULT NULL,
   canal ENUM('manual', 'web', 'correo', 'whatsapp') NOT NULL DEFAULT 'manual',
+  modalidad ENUM('presencial', 'remoto') NOT NULL DEFAULT 'presencial',
   contacto_origen VARCHAR(150) DEFAULT NULL,
   mensaje_externo_id VARCHAR(255) DEFAULT NULL,
   nota_cierre TEXT DEFAULT NULL,

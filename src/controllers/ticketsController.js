@@ -2,6 +2,7 @@ import pool from '../config/db.js';
 import {
   COLUMNAS_TICKET,
   REGEX_CODIGO_TICKET,
+  actualizarModalidad,
   aplicarTransicion,
   crearTicket,
   registrarConformidad,
@@ -19,6 +20,7 @@ import {
   validarAtencion,
   validarConformidad,
   validarFiltros,
+  validarModalidad,
   validarNuevoTicket,
   validarVinculo
 } from '../validators/ticketValidators.js';
@@ -64,6 +66,10 @@ export const listarAdmin = async (req, res) => {
     condiciones.push('empresa_solicitante LIKE ?');
     parametros.push(`%${filtros.empresa}%`);
   }
+  if (filtros.modalidad) {
+    condiciones.push('modalidad = ?');
+    parametros.push(filtros.modalidad);
+  }
   if (filtros.cliente_uuid) {
     condiciones.push('cliente_uuid = ?');
     parametros.push(filtros.cliente_uuid);
@@ -78,6 +84,14 @@ export const listarAdmin = async (req, res) => {
   if (filtros.fecha_hasta) {
     condiciones.push('DATE(created_at) <= ?');
     parametros.push(filtros.fecha_hasta);
+  }
+  if (filtros.cierre_desde) {
+    condiciones.push('fecha_cierre IS NOT NULL AND DATE(fecha_cierre) >= ?');
+    parametros.push(filtros.cierre_desde);
+  }
+  if (filtros.cierre_hasta) {
+    condiciones.push('fecha_cierre IS NOT NULL AND DATE(fecha_cierre) <= ?');
+    parametros.push(filtros.cierre_hasta);
   }
 
   const donde = condiciones.length ? `WHERE ${condiciones.join(' AND ')}` : '';
@@ -110,6 +124,21 @@ export const crearAdmin = async (req, res) => {
   const datos = validarNuevoTicket(req.body);
 
   res.status(201).json(await crearTicket({ ...datos, canal: 'manual' }));
+};
+
+export const modalidadAdmin = async (req, res) => {
+  const { modalidad } = validarModalidad(req.body);
+
+  await actualizarModalidad(req.params.uuid, modalidad);
+
+  const [filas] = await pool.query(
+    `SELECT ${COLUMNAS_TICKET} FROM tickets WHERE uuid = ?`,
+    [req.params.uuid]
+  );
+
+  if (!filas.length) throw abortar(404, 'Ticket no encontrado');
+
+  res.json(filas[0]);
 };
 
 export const asignarAdmin = async (req, res) => {

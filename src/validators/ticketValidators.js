@@ -1,6 +1,7 @@
 import { ValidationError } from './validators.js';
 
 export const ESTADOS_TICKET = ['pendiente', 'asignado', 'en_servicio', 'atendido', 'cancelado'];
+export const MODALIDADES_TICKET = ['presencial', 'remoto'];
 
 export const TICKET_LIMITS = {
   empresa: 150,
@@ -40,8 +41,16 @@ export const validarNuevoTicket = (body = {}) => ({
   empresa: texto(body.empresa_solicitante, 'La empresa', TICKET_LIMITS.empresa),
   nombre: texto(body.nombre_solicitante, 'El nombre', TICKET_LIMITS.nombre),
   asunto: texto(body.asunto, 'El asunto', TICKET_LIMITS.asunto),
-  descripcion: texto(body.descripcion, 'El problema', TICKET_LIMITS.descripcion)
+  descripcion: texto(body.descripcion, 'El problema', TICKET_LIMITS.descripcion),
+  modalidad: MODALIDADES_TICKET.includes(body.modalidad) ? body.modalidad : 'presencial'
 });
+
+export const validarModalidad = (body = {}) => {
+  if (!MODALIDADES_TICKET.includes(body.modalidad)) {
+    throw new ValidationError('modalidad debe ser presencial o remoto');
+  }
+  return { modalidad: body.modalidad };
+};
 
 export const validarAsignacion = (body = {}) => validarUUID(body.tecnico_uuid, 'tecnico_uuid');
 
@@ -111,7 +120,11 @@ export const validarFiltros = (query = {}) => {
     filtros.sin_cliente = query.sin_cliente === 'true' ? 'true' : 'false';
   }
   if (query.empresa) filtros.empresa = String(query.empresa).trim().slice(0, TICKET_LIMITS.empresa);
-  for (const campo of ['fecha_desde', 'fecha_hasta']) {
+  if (query.modalidad) {
+    if (!MODALIDADES_TICKET.includes(query.modalidad)) throw new ValidationError('modalidad no es válida');
+    filtros.modalidad = query.modalidad;
+  }
+  for (const campo of ['fecha_desde', 'fecha_hasta', 'cierre_desde', 'cierre_hasta']) {
     if (query[campo]) {
       if (!FECHA_REGEX.test(query[campo])) {
         throw new ValidationError(`${campo} debe tener formato YYYY-MM-DD`);

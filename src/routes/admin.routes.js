@@ -29,6 +29,7 @@ import {
   crearAdmin,
   detalleAdmin,
   listarAdmin,
+  modalidadAdmin,
   vincularClienteAdmin
 } from '../controllers/ticketsController.js';
 import { verGastos } from '../controllers/gastos.controller.js';
@@ -101,6 +102,8 @@ router.get('/tickets', asyncHandler(listarAdmin));
 router.post('/tickets', asyncHandler(crearAdmin));
 
 router.get('/tickets/:uuid', asyncHandler(detalleAdmin));
+
+router.patch('/tickets/:uuid/modalidad', asyncHandler(modalidadAdmin));
 
 router.patch('/tickets/:uuid/asignar', asyncHandler(asignarAdmin));
 

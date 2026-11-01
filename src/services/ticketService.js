@@ -29,7 +29,7 @@ export const REGEX_CODIGO_TICKET =
 
 export const COLUMNAS_TICKET = `uuid, codigo, empresa_solicitante, nombre_solicitante,
   asunto, descripcion, estado, cliente_conforme, aprobado_por, fecha_conformidad, motivo_no_conforme,
-  tecnico_uuid, cliente_uuid, canal, contacto_origen, nota_cierre,
+  tecnico_uuid, cliente_uuid, canal, modalidad, contacto_origen, nota_cierre,
   fecha_asignacion, fecha_inicio_servicio, fecha_cierre, created_at, updated_at`;
 
 export const ticketPorMensajeExterno = async (mensajeExternoId) => {
@@ -85,6 +85,7 @@ export const crearTicket = async ({
   asunto,
   descripcion,
   canal = 'manual',
+  modalidad = 'presencial',
   contactoOrigen = null,
   mensajeExternoId = null
 }) => {
@@ -96,9 +97,9 @@ export const crearTicket = async ({
     try {
       await pool.query(
         `INSERT INTO tickets
-          (uuid, codigo, empresa_solicitante, nombre_solicitante, asunto, descripcion, canal, contacto_origen, mensaje_externo_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [uuid, codigo, empresa, nombre, asunto, descripcion, canal, contactoOrigen, mensajeExternoId]
+          (uuid, codigo, empresa_solicitante, nombre_solicitante, asunto, descripcion, canal, modalidad, contacto_origen, mensaje_externo_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [uuid, codigo, empresa, nombre, asunto, descripcion, canal, modalidad, contactoOrigen, mensajeExternoId]
       );
       return { uuid, codigo };
     } catch (error) {
@@ -154,6 +155,15 @@ export const aplicarTransicion = async (
     propietarioUuid ? [uuid, propietarioUuid] : [uuid]
   );
   return existentes.length ? 'estado_invalido' : 'no_existe';
+};
+
+export const actualizarModalidad = async (uuid, modalidad) => {
+  const [resultado] = await pool.query(
+    'UPDATE tickets SET modalidad = ? WHERE uuid = ?',
+    [modalidad, uuid]
+  );
+
+  return resultado.affectedRows === 1;
 };
 
 export const registrarConformidad = async (uuid, { conforme, aprobadoPor, motivo }) => {
