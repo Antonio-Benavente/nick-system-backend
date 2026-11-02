@@ -32,22 +32,11 @@ const formatoHoraLima = new Intl.DateTimeFormat('es-PE', {
 
 const crearStreamLegible = () =>
   pretty({
+    sync: true,
     colorize: false,
     singleLine: true,
-    ignore: 'pid,hostname,servicio,entorno,requestId,http,route,userId,consola,msg',
-    customPrettifiers: {
-      time: (marca) => formatoHoraLima.format(new Date(marca))
-    },
-    messageFormat: (log) => {
-      const usuario = log.userId ? ` [user ${log.userId}]` : '';
-
-      if (log.http) {
-        const { method, status, ms } = log.http;
-        return `${method} ${log.route ?? log.http.route} ${status} ${ms}ms${usuario}`;
-      }
-
-      return `${log.msg ?? ''}${usuario}`;
-    }
+    translateTime: 'SYS:dd/mm/yyyy HH:MM:ss',
+    ignore: 'pid,hostname,servicio,entorno,requestId'
   });
 
 const usarFormatoLegible = process.env.LOG_PRETTY === 'true';
