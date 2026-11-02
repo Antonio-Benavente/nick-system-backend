@@ -4,6 +4,8 @@ import { format } from 'node:util';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { config } from './env.js';
 
+process.env.TZ = config.APP_TIMEZONE;
+
 export const contextoPeticion = new AsyncLocalStorage();
 
 const REDACTAR = {
@@ -35,7 +37,7 @@ const crearStreamLegible = () =>
     sync: true,
     colorize: false,
     singleLine: true,
-    translateTime: 'SYS:dd/mm/yyyy HH:MM:ss',
+    translateTime: 'SYS:standard',
     ignore: 'pid,hostname,servicio,entorno,requestId'
   });
 
