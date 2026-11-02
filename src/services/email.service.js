@@ -1,13 +1,21 @@
-import { Resend } from 'resend';
+﻿import { Resend } from 'resend';
+import { config } from '../config/env.js';
+import { formatearFechaSoloLima, formatearFechaHoraLima } from '../utils/fechas.js';
+
+const REMITENTE_POR_DEFECTO = 'Nick System <soporte@nicksystem.com>';
 
 class EmailService {
   constructor() {
-    if (!process.env.RESEND_API_KEY) {
+    if (!config.RESEND_API_KEY) {
       console.warn('⚠️ RESEND_API_KEY no configurada. El servicio de email no funcionará.');
       this.resend = null;
     } else {
-      this.resend = new Resend(process.env.RESEND_API_KEY);
+      this.resend = new Resend(config.RESEND_API_KEY);
     }
+  }
+
+  remitente() {
+    return config.EMAIL_FROM || REMITENTE_POR_DEFECTO;
   }
 
   async enviarNotificacionReporte(reporte, clienteEmail, clienteNombre, clienteEmpresa) {
@@ -27,7 +35,7 @@ class EmailService {
       const html = this.generarHTMLCorreo(reporte, clienteNombre, clienteEmpresa);
 
       const { data, error } = await this.resend.emails.send({
-        from: process.env.EMAIL_FROM || 'Nick System <soporte@nicksystem.com>',
+        from: this.remitente(),
         to: [clienteEmail],
         subject: `📋 Reporte de Servicio - ${reporte.categoria}`,
         html: html,
@@ -51,7 +59,7 @@ class EmailService {
     }
   }
 
-  async enviarAcuseTicket({ to, nombre, codigo, url }) {
+  async enviarAcuseTicket({ to, nombre, codigo, url, asunto, descripcion, fecha }) {
     try {
       if (!this.resend) {
         throw new Error('RESEND_API_KEY no configurada en variables de entorno');
@@ -61,10 +69,10 @@ class EmailService {
         throw new Error('Destinatario no proporcionado');
       }
 
-      const html = this.generarHTMLAcuse(nombre, codigo, url);
+      const html = this.generarHTMLAcuse(nombre, codigo, url, { asunto, descripcion, fecha });
 
       const { data, error } = await this.resend.emails.send({
-        from: process.env.EMAIL_FROM || 'Nick System <soporte@nicksystem.com>',
+        from: this.remitente(),
         to: [to],
         subject: `Recibimos tu solicitud - Ticket ${codigo}`,
         html: html,
@@ -89,7 +97,7 @@ class EmailService {
   }
 
   destinatariosTicketInterno() {
-    return String(process.env.TICKET_NOTIFICACION_EMAIL || '')
+    return String(config.TICKET_NOTIFICACION_EMAIL || '')
       .split(',')
       .map((correo) => correo.trim())
       .filter(Boolean);
@@ -103,7 +111,8 @@ class EmailService {
     canal = 'correo',
     contactoOrigen,
     codigo,
-    url
+    url,
+    fecha
   }) {
     const destinatarios = this.destinatariosTicketInterno();
 
@@ -124,11 +133,12 @@ class EmailService {
         canal,
         contactoOrigen,
         codigo,
-        url
+        url,
+        fecha
       });
 
       const { data, error } = await this.resend.emails.send({
-        from: process.env.EMAIL_FROM || 'Nick System <soporte@nicksystem.com>',
+        from: this.remitente(),
         to: destinatarios,
         subject: `Nuevo ticket por ${canal} - ${codigo}`,
         html: html,
@@ -167,7 +177,7 @@ class EmailService {
       const html = this.generarHTMLNoConforme({ codigo, empresa, nombre, asunto, motivo, url });
 
       const { data, error } = await this.resend.emails.send({
-        from: process.env.EMAIL_FROM || 'Nick System <soporte@nicksystem.com>',
+        from: this.remitente(),
         to: destinatarios,
         subject: `Ticket ${codigo} marcado como NO CONFORME`,
         html: html,
@@ -201,7 +211,16 @@ class EmailService {
       .replace(/'/g, '&#39;');
   }
 
-  generarHTMLAcuse(nombre, codigo, url) {
+  generarHTMLAcuse(nombre, codigo, url, { asunto, descripcion, fecha } = {}) {
+    const multlinea = (valor) => this.escapeHtml(valor).replace(/\r?\n/g, '<br>');
+    const filas = [
+      asunto ? ['📌 Asunto:', this.escapeHtml(asunto)] : null,
+      descripcion
+        ? ['📄 Descripción:', multlinea(descripcion)]
+        : null,
+      fecha ? ['🕒 Fecha:', this.escapeHtml(formatearFechaHoraLima(fecha))] : null
+    ].filter(Boolean);
+
     return `
       <!DOCTYPE html>
       <html>
@@ -227,6 +246,14 @@ class EmailService {
               <p style="margin: 0; color: #475569; font-size: 14px;">Tu código de ticket</p>
               <p style="margin: 8px 0 0; font-size: 28px; font-weight: 700; color: #1e293b;">${this.escapeHtml(codigo)}</p>
             </div>
+            ${filas.length ? `
+            <table style="width: 100%; border-collapse: collapse; font-size: 15px; margin-bottom: 8px;">
+              ${filas.map(([etiqueta, valor]) => `
+              <tr style="border-bottom: 1px solid #e2e8f0;">
+                <td style="padding: 10px 0; color: #475569; font-weight: 600; width: 120px; vertical-align: top;">${etiqueta}</td>
+                <td style="padding: 10px 0; color: #1e293b; white-space: pre-wrap; word-break: break-word;">${valor || 'No especificado'}</td>
+              </tr>`).join('')}
+            </table>` : ''}
             <div style="text-align: center; margin: 32px 0;">
               <a href="${url}" style="display: inline-block; background: #1e3a8a; color: #ffffff; padding: 14px 36px; font-size: 16px; font-weight: 600; text-decoration: none; border-radius: 8px;">
                 Seguir el estado de mi ticket
@@ -300,7 +327,7 @@ class EmailService {
     `;
   }
 
-  generarHTMLNotificacionTicket({ empresa, nombre, asunto, descripcion, canal, contactoOrigen, codigo, url }) {
+  generarHTMLNotificacionTicket({ empresa, nombre, asunto, descripcion, canal, contactoOrigen, codigo, url, fecha }) {
     const multlinea = (valor) => this.escapeHtml(valor).replace(/\r?\n/g, '<br>');
 
     return `
@@ -339,6 +366,11 @@ class EmailService {
                 <td style="padding: 10px 0; color: #475569; font-weight: 600; vertical-align: top;">📌 Asunto:</td>
                 <td style="padding: 10px 0; color: #1e293b; font-weight: 600;">${multlinea(asunto) || 'Sin asunto'}</td>
               </tr>
+              ${fecha ? `
+              <tr style="border-top: 1px solid #e2e8f0;">
+                <td style="padding: 10px 0; color: #475569; font-weight: 600; vertical-align: top;">🕒 Fecha:</td>
+                <td style="padding: 10px 0; color: #1e293b;">${this.escapeHtml(formatearFechaHoraLima(fecha))}</td>
+              </tr>` : ''}
             </table>
             <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; margin-top: 20px;">
               <p style="margin: 0 0 8px 0; color: #475569; font-size: 14px; font-weight: 600;">📝 Descripción</p>
@@ -361,7 +393,7 @@ class EmailService {
   }
 
   generarHTMLCorreo(reporte, clienteNombre, clienteEmpresa) {
-    const portalUrl = `${process.env.FRONTEND_URL}/login`;
+    const portalUrl = `${config.FRONTEND_URL || 'https://nicksystem.com'}/login`;
     return `
       <!DOCTYPE html>
       <html>
@@ -559,19 +591,11 @@ class EmailService {
   }
 
   formatearFecha(fecha) {
-    try {
-      if (!fecha) return "Fecha no especificada";
-      const date = new Date(fecha);
-      if (isNaN(date.getTime())) return fecha;
-      return date.toLocaleDateString("es-PE", {
-        weekday: "long",
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-      });
-    } catch {
-      return fecha || "Fecha no especificada";
-    }
+    if (!fecha) return 'Fecha no especificada';
+
+    const formateada = formatearFechaSoloLima(fecha);
+
+    return formateada || String(fecha);
   }
 }
 

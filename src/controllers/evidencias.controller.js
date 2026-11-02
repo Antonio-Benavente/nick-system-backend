@@ -4,6 +4,7 @@ import { evidenciaAccesible, reporteAccesible } from '../services/acceso.service
 import { abortar } from '../middlewares/error.middleware.js';
 import { conTransaccion } from '../services/transaccion.service.js';
 import { validarEvidencias } from '../validators/validators.js';
+import { validarEvidenciasRemotas } from '../services/evidenciasRemotas.service.js';
 
 const CAMPOS_EDITABLES = ['url', 'tipo', 'descripcion', 'orden'];
 const ORDEN_POR_DEFECTO = 1;
@@ -40,6 +41,8 @@ export const getEvidencias = async (req, res) => {
 
 export const addEvidencia = async (req, res) => {
   const [validada] = validarEvidencias([req.body]);
+
+  await validarEvidenciasRemotas([validada]);
 
   const { url, tipo, descripcion, orden } = validada;
 
@@ -80,6 +83,8 @@ export const addEvidenciasBatch = async (req, res) => {
   if (lista.length === 0) {
     throw abortar(400, 'Debe proporcionar al menos una evidencia');
   }
+
+  await validarEvidenciasRemotas(lista);
 
   const uuids = await conTransaccion(async (connection) => {
     const reporte = await reporteAccesible(req.params.reporte_uuid, req.user, connection);
@@ -147,6 +152,10 @@ export const updateEvidencia = async (req, res) => {
   }
 
   const [validada] = validarEvidencias([{ ...actual[0], ...cambios }], 'evidencia');
+
+  if (cambios.url !== undefined) {
+    await validarEvidenciasRemotas([validada]);
+  }
 
   await pool.query(
     `UPDATE reporte_evidencias

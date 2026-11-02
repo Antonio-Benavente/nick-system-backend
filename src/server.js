@@ -1,70 +1,115 @@
+import "./config/sentry.js";
 import "./config/logs.js";
 import cron from 'node-cron';
 import app from "./app.js";
 import pool from "./config/db.js";
+import { config } from "./config/env.js";
+import { logger } from "./config/logs.js";
+import { capturarExcepcion } from "./config/sentry.js";
 import {
   limpiarConversacionesVencidas,
   limpiarMensajesAntiguos
 } from "./services/whatsappConversacion.service.js";
+import { limpiarEventosAntiguos } from "./services/incomingEvents.service.js";
+import { limpiarIdempotenciaAntigua } from "./middlewares/idempotencia.middleware.js";
 import { iniciarWarmup } from "./services/warmup.service.js";
 
 const INTERVALO_LIMPIEZA_MINUTOS = 15;
-const ZONA_HORARIA = 'America/Lima';
 const APAGADO_MAXIMO_MS = 10000;
+const INTENTOS_ARRANQUE = 3;
+const ESPERA_ARRANQUE_MS = 2000;
 
-if (!process.env.JWT_SECRET) {
-  console.error("❌ ERROR: JWT_SECRET no está definida en las variables de entorno");
-  process.exit(1);
-}
-
-const PORT = process.env.PORT || 4000;
+const PORT = config.PORT;
 
 let cerrando = false;
+
+const esperar = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const comprobarBaseDeDatosAlArrancar = async () => {
+  for (let intento = 1; intento <= INTENTOS_ARRANQUE; intento += 1) {
+    try {
+      await pool.query('SELECT 1');
+      logger.info({ intento }, 'MySQL disponible al arrancar');
+      return true;
+    } catch (error) {
+      logger.warn(
+        { intento, intentos: INTENTOS_ARRANQUE, error: error.message },
+        'MySQL no disponible al arrancar'
+      );
+
+      if (intento < INTENTOS_ARRANQUE) await esperar(ESPERA_ARRANQUE_MS);
+    }
+  }
+
+  return false;
+};
 
 const iniciarLimpieza = () => {
   const tarea = cron.schedule(`*/${INTERVALO_LIMPIEZA_MINUTOS} * * * *`, async () => {
     try {
       const borradas = await limpiarConversacionesVencidas();
       if (borradas > 0) {
-        console.log(`🧹 Conversaciones de WhatsApp vencidas eliminadas: ${borradas}`);
+        logger.info({ borradas }, 'Conversaciones de WhatsApp vencidas eliminadas');
       }
     } catch (error) {
-      console.warn('⚠️ Fallo limpiando conversaciones vencidas:', error.message);
+      logger.warn({ error: error.message }, 'Fallo limpiando conversaciones vencidas');
     }
 
     try {
-      // El registro de idempotencia solo sirve unos días: pasado ese plazo Meta ya
-      // no reintenta y la fila solo ocupa espacio.
       const purgados = await limpiarMensajesAntiguos();
       if (purgados > 0) {
-        console.log(`🧹 Mensajes de WhatsApp purgados: ${purgados}`);
+        logger.info({ purgados }, 'Mensajes de WhatsApp purgados');
       }
     } catch (error) {
-      console.warn('⚠️ Fallo purgando mensajes de WhatsApp:', error.message);
+      logger.warn({ error: error.message }, 'Fallo purgando mensajes de WhatsApp');
     }
-  }, { timezone: ZONA_HORARIA });
+
+    try {
+      const eventos = await limpiarEventosAntiguos();
+      if (eventos > 0) {
+        logger.info({ eventos }, 'Eventos de webhook purgados');
+      }
+    } catch (error) {
+      logger.warn({ error: error.message }, 'Fallo purgando eventos de webhook');
+    }
+
+    try {
+      const claves = await limpiarIdempotenciaAntigua();
+      if (claves > 0) {
+        logger.info({ claves }, 'Claves de idempotencia purgadas');
+      }
+    } catch (error) {
+      logger.warn({ error: error.message }, 'Fallo purgando claves de idempotencia');
+    }
+  }, { timezone: config.ZONA_HORARIA });
 
   return tarea;
 };
 
 async function startServer() {
-  try {
-    await pool.query("SELECT 1");
-    console.log("✅ Conectado a MySQL");
-  } catch {
-    console.warn("⚠️ MySQL no disponible al iniciar");
+  const baseDeDatosLista = await comprobarBaseDeDatosAlArrancar();
+
+  if (!baseDeDatosLista && config.ES_PRODUCCION) {
+    logger.fatal('MySQL no respondió en el arranque: no se abre el puerto');
+    process.exit(1);
   }
 
   const server = app.listen(PORT, () => {
-    console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
-    console.log(`📍 Entorno: ${process.env.NODE_ENV || "development"}`);
+    logger.info(
+      { puerto: PORT, entorno: config.NODE_ENV, zonaHoraria: config.ZONA_HORARIA },
+      'Servidor iniciado'
+    );
+
+    if (!baseDeDatosLista) {
+      logger.warn('El servidor arrancó sin MySQL: /ready responderá 503');
+    }
   });
 
   server.on('error', (error) => {
     if (error.code === 'EADDRINUSE') {
-      console.error(`❌ El puerto ${PORT} ya está en uso`);
+      logger.fatal({ puerto: PORT }, 'El puerto ya está en uso');
     } else {
-      console.error('❌ Error del servidor HTTP:', error);
+      logger.fatal({ error }, 'Error del servidor HTTP');
     }
     process.exit(1);
   });
@@ -76,7 +121,7 @@ async function startServer() {
     if (cerrando) return;
     cerrando = true;
 
-    console.log(`🛑 Cerrando servidor (${senal})...`);
+    logger.info({ senal }, 'Cerrando servidor');
     tareaLimpieza.stop();
     (tareasWarmup || []).forEach((tarea) => tarea.stop());
 
@@ -91,16 +136,18 @@ async function startServer() {
   process.on("SIGINT", () => shutdown("SIGINT"));
 
   process.on("unhandledRejection", (razon) => {
-    console.error("Promesa rechazada sin manejar:", razon);
+    logger.error({ error: razon }, 'Promesa rechazada sin manejar');
+    capturarExcepcion(razon instanceof Error ? razon : new Error(String(razon)), null);
   });
 
   process.on("uncaughtException", (error) => {
-    console.error("Excepción no capturada:", error);
+    logger.fatal({ error }, 'Excepción no capturada');
+    capturarExcepcion(error, null);
     shutdown("uncaughtException");
   });
 }
 
 startServer().catch((error) => {
-  console.error('❌ No se pudo iniciar el servidor:', error);
+  logger.fatal({ error }, 'No se pudo iniciar el servidor');
   process.exit(1);
 });

@@ -4,97 +4,93 @@ API REST Express 4 + MySQL (`mysql2`) en ESM. Es la fuente de verdad de los endp
 
 Despliegue en Render (`render.yaml` + `Dockerfile`, Node 20 Alpine).
 
-> Documentación general del proyecto (ambos proyectos) en [`../README.md`](../README.md).
-> Frontend en [`../Nick System Frontend`](../Nick%20System%20Frontend).
 
----
+## Contenido
 
-## Requisitos
-
-- Node.js 20+
-- **pnpm siempre** (nunca npm). El `pnpm-lock.yaml` es la fuente autoritativa; los `package-lock.json` residuales están obsoletos.
-- MySQL local (XAMPP/MariaDB): usuario `root`, sin contraseña, **puerto 3307**.
-
----
-
-## Puesta en Marcha
-
-```bash
-pnpm install
-pnpm dev       # nodemon src/server.js (puerto 4000)
-pnpm start     # producción
-node --check src/<archivo>.js   # verificar sintaxis sin ejecutar
-```
-
-Crear la base de datos:
-
-```bash
-mysql -u root -p nicksystemlocal < database/schema.sql
-```
-
-> `database/schema.sql` usa `CREATE TABLE IF NOT EXISTS`. Si existiera un dump de producción, se restaura directamente.
-
-- Frontend: http://localhost:5173
-- Backend API: http://localhost:4000
-- Health check: http://localhost:4000/health
+- [Desarrollo y pruebas](#desarrollo-y-pruebas)
+- [Variables de Entorno](#variables-de-entorno-env)
+- [Arquitectura y Código](#arquitectura-y-código)
+  - [Capas](#capas)
+  - [Estructura de `src/`](#estructura-de-src)
+  - [Roles y autenticación](#roles-y-autenticación)
+  - [Rate limiting](#rate-limiting)
+  - [Seguridad](#seguridad)
+  - [Observabilidad](#observabilidad)
+  - [Idempotencia](#idempotencia)
+  - [Validación de evidencias](#validación-de-evidencias)
+  - [Mantenimiento en segundo plano](#mantenimiento-en-segundo-plano)
+  - [Rutas montadas](#rutas-montadas-sin-prefijo-api)
+- [Endpoints](#endpoints)
+  - [Autenticación](#autenticación)
+  - [Sesiones revocables](#sesiones-revocables)
+  - [Admin](#admin-requiere-rol-admin)
+  - [Categorías](#categorías)
+  - [Técnicos](#técnicos-requiere-rol-tecnico)
+  - [Clientes](#clientes-requiere-rol-cliente)
+  - [Evidencias](#evidencias-requieren-auth-sin-restricción-de-rol)
+  - [Notificaciones](#notificaciones)
+  - [Tickets (admin)](#tickets-admin)
+  - [Tickets (técnico)](#tickets-técnico)
+  - [Estados del ticket](#estados-del-ticket)
+  - [Paginación](#paginación)
+  - [Auditoría de credenciales](#auditoría-de-credenciales)
+  - [Webhooks](#webhooks-tickets-entrantes)
+  - [Seguimiento público de tickets](#seguimiento-público-de-tickets)
+  - [Confirmación del servicio por el cliente](#confirmación-del-servicio-por-el-cliente)
+  - [Health Check y readiness](#health-check-y-readiness)
+- [Tickets Entrantes (WhatsApp y Correo)](#tickets-entrantes-whatsapp-y-correo)
+  - [Código del ticket](#código-del-ticket)
+  - [Interacción de WhatsApp](#interacción-de-whatsapp)
+  - [Bitácora de webhooks](#bitácora-de-webhooks)
+  - [Parseo del mensaje de WhatsApp](#parseo-del-mensaje-de-whatsapp)
+  - [Parseo del correo](#parseo-del-correo)
+  - [Deduplicación](#deduplicación)
+  - [Acuse automático](#acuse-automático)
+  - [Notificación interna del ticket](#notificación-interna-del-ticket)
+  - [Pruebas locales sin túnel](#pruebas-locales-sin-túnel)
+  - [Configuración en Resend](#configuración-en-resend)
+  - [Webhook público y túnel](#webhook-público-y-túnel)
+- [Base de Datos](#base-de-datos)
+  - [Cambios de esquema](#cambios-de-esquema)
 
 ---
 
 ## Variables de Entorno (`.env`)
 
-`DATABASE_URL` y `JWT_SECRET` hacen que el servidor **no arranque** si faltan.
+`DATABASE_URL` y `JWT_SECRET` hacen que el servidor **no arranque** si faltan. El resto se valida en `src/config/env.js` con zod: en **producción** los grupos de correo, correo entrante y WhatsApp también son obligatorios; en desarrollo solo generan avisos. Los errores se listan todos juntos y nunca imprimen valores secretos. Ningún otro archivo lee `process.env` directamente.
 
-```env
-PORT=4000
-NODE_ENV=development
-TRUST_PROXY=1
-DATABASE_URL=mysql://root@localhost:3307/nicksystemlocal
-JWT_SECRET=tu_clave_secreta
-JWT_EXPIRES_IN=1d
-TICKET_CODIGO_SECRET=
-RESEND_API_KEY=re_xxxxxxxxxxxxx
-EMAIL_FROM=Nick System <soporte@nicksystem.com>
-FRONTEND_URL=http://localhost:5173
-ALLOWED_ORIGINS=http://localhost:5173
-RESEND_WEBHOOK_SECRET=
-WHATSAPP_TOKEN=
-WHATSAPP_PHONE_NUMBER_ID=
-WHATSAPP_VERIFY_TOKEN=
-WHATSAPP_APP_SECRET=
-WHATSAPP_GRAPH_VERSION=v25.0
-WHATSAPP_CONVERSACION_MINUTOS=30
-WHATSAPP_INTENTOS_MAXIMOS=2
-WHATSAPP_CONSULTA_TICKET_DIAS=90
-WHATSAPP_MENSAJES_DIAS=7
-TICKET_EMPRESA_CORREO=G
-TICKET_EMPRESA_WHATSAPP=WhatsApp
-TICKET_URGENCIA_TELEFONO=
-TICKET_URGENCIA_EMAIL=
-TICKET_NOTIFICACION_EMAIL=
-WARMUP_URL=
-WARMUP_MINUTOS=10
-WARMUP_HORARIO=08:00-22:00
-```
 
 | Variable | Notas |
 |---|---|
 | `PORT` | Puerto del servidor (default 4000) |
 | `NODE_ENV` | `development` hace el CORS permisivo y activa logs |
+| `TRUST_PROXY` | Saltos de proxy confiables para `req.ip` (default 1, Render) |
+| `APP_TIMEZONE` | Zona horaria de presentación (default `America/Lima`). La base guarda UTC y la API muestra en esta zona |
 | `DATABASE_URL` | URI de pool mysql2 (**obligatoria**) |
 | `JWT_SECRET` | Clave para firmar tokens (**obligatoria**) |
 | `JWT_EXPIRES_IN` | Expiración del token (`1d`, etc.) |
 | `TICKET_CODIGO_SECRET` | Clave del HMAC con el que se genera el código público del ticket. Si se deja vacía cae a `JWT_SECRET`, así que no es obligatoria. En Render se genera sola |
+| `CLAVES_ENCRYPTION_KEY` | Clave AES-256-GCM para cifrar las contraseñas de la tabla `claves`. Acepta 32 bytes en base64, 64 hex o 32 caracteres UTF-8. **Obligatoria en producción**; en desarrollo, si falta, se guarda sin cifrar |
 | `RESEND_API_KEY` | API key de Resend (envío de emails) |
 | `EMAIL_FROM` | Remitente de los emails |
 | `FRONTEND_URL` | URL del frontend (se usa en los enlaces de seguimiento de los acuses) |
 | `ALLOWED_ORIGINS` | Orígenes adicionales permitidos (separados por comas) |
 | `RESEND_WEBHOOK_SECRET` | Signing secret del webhook de Resend. Vacía en dev (se omite la verificación); **obligatoria en producción** |
+| `LOG_LEVEL` | Nivel de pino: `fatal`, `error`, `warn`, `info`, `debug`, `trace`, `silent` (default `info`) |
+| `SENTRY_DSN` | DSN de Sentry. Sin valor no se inicializa |
+| `SENTRY_TRACES_SAMPLE_RATE` | Muestreo de trazas de Sentry (default `0.1`) |
+| `FF_INCOMING_EVENTS` | `off`, `observe` o `enforce`. Deduplicación técnica de webhooks (default `observe`) |
+| `FF_ZOD_VALIDATION` | `off`, `observe` o `enforce`. Zod valida y registra; en `enforce` rechaza (default `observe`) |
+| `FF_IDEMPOTENCY` | `off` o `enforce`. Activa el header `Idempotency-Key` (default `off`) |
+| `EVIDENCIAS_MAX_MB` | Tamaño máximo por archivo de evidencia, en MB (default 10) |
+| `EVIDENCIAS_HOSTS` | Hosts permitidos para las URLs de evidencias, separados por comas. Vacío = `res.cloudinary.com` |
 | `WHATSAPP_TOKEN` | Token de acceso de Meta Cloud API |
 | `WHATSAPP_PHONE_NUMBER_ID` | ID del número de WhatsApp Business |
 | `WHATSAPP_VERIFY_TOKEN` | Token que Meta exige al suscribir el webhook |
 | `WHATSAPP_APP_SECRET` | App secret de Meta para validar `x-hub-signature-256`. Vacía en dev; **obligatoria en producción** |
 | `WHATSAPP_GRAPH_VERSION` | Versión de la Graph API (usada en los envíos) |
 | `WHATSAPP_CONVERSACION_MINUTOS` | Minutos que se espera la respuesta con los datos antes de volver a pedirla (default 30) |
+| `WHATSAPP_PREFIJO_PAIS` | Prefijo que se antepone a un número local de 9 dígitos (default `51`) |
 | `WHATSAPP_INTENTOS_MAXIMOS` | Intentos fallidos que el cliente tiene antes de que se cree el ticket igual, con los valores por defecto (default 2). Evita el bucle infinito de "faltan datos" |
 | `WHATSAPP_CONSULTA_TICKET_DIAS` | Ventana hacia atrás para buscar el ticket en "ya vieron mi caso" (default 90 días). Evita devolver un caso de hace meses |
 | `WHATSAPP_MENSAJES_DIAS` | Días que se conserva el registro de idempotencia del webhook (default 7). Pasado ese plazo Meta ya no reintenta y la fila solo ocupa espacio |
@@ -106,7 +102,6 @@ WARMUP_HORARIO=08:00-22:00
 | `WARMUP_MINUTOS` | Cada cuántos minutos se hace el ping (10). `0` lo desactiva |
 | `WARMUP_HORARIO` | Franja horaria (hora de Lima) en la que se hace el ping, p. ej. `08:00-22:00`. Fuera de ella no se hace, para no gastar las 750 h/mes del plan gratis de Render |
 
-Referencia completa en `.env.example`.
 
 ---
 
@@ -125,28 +120,38 @@ Los controllers son la **fuente de verdad** de los shapes de request/response. L
 ```
 src/
 ├── config/
-│   └── db.js                           # Pool de conexiones MySQL (mysql2)
+│   ├── env.js                          # Configuración validada con zod (única lectura de process.env)
+│   ├── db.js                           # Pool de conexiones MySQL (mysql2, timezone UTC)
+│   ├── logs.js                         # pino + contexto de request + parche de console
+│   └── sentry.js                       # Inicialización y captura de excepciones
 ├── routes/                             # Definición de rutas + middlewares
 │   └── webhooks.routes.js              # /webhooks/resend/email y /webhooks/whatsapp
 ├── validators/
 │   ├── validators.js                   # Validación genérica (lanza ValidationError → 400)
+│   ├── schemas.js                      # Esquemas zod + validarConZod (observe/enforce)
 │   └── ticketValidators.js             # Validadores de tickets y esUUID()
 ├── controllers/                        # Fuente de verdad de request/response
 │   ├── ticketsController.js            # Tickets + seguimiento público
 │   └── webhooks.controller.js          # Handlers de Resend y Meta
 ├── services/
 │   ├── ticketService.js                # crearTicket (genera el código), transiciones, COLUMNAS_TICKET
-│   ├── ticketIngesta.service.js        # Parseo y alta de tickets entrantes
+│   ├── ticketIngesta.service.js        # Alta de tickets entrantes
+│   ├── whatsappParser.service.js       # Parseo y plantillas de WhatsApp (testeable sin BD)
+│   ├── incomingEvents.service.js       # Idempotencia técnica de webhooks
+│   ├── clavesCifrado.service.js        # AES-256-GCM para credenciales de la tabla claves
+│   ├── evidenciasRemotas.service.js    # HEAD a la URL: MIME, host y tamaño de evidencias
 │   ├── acceso.service.js               # Quién puede ver cada reporte, ticket o gasto
 │   ├── gastos.service.js               # CRUD de ticket_gastos
-│   ├── health.service.js               # Preflight de MySQL para webhooks y /health
+│   ├── health.service.js               # Liveness/readiness y preflight de MySQL
 │   ├── warmup.service.js               # Ping de mantenimiento contra la URL pública
 │   ├── email.service.js                # Resend: reportes y acuses
 │   ├── whatsapp.service.js             # Meta Cloud API: envío + verificación de firma
 │   ├── svix.service.js                 # Verificación de firma Svix (Resend)
 │   └── resendInbound.service.js        # Descarga del email recibido
-├── middlewares/                        # auth, role, error
-├── app.js                              # Express, CORS, rawBody, montaje de rutas
+├── middlewares/                        # auth, role, error, requestContext, idempotencia, límites
+├── utils/
+│   └── fechas.js                       # Formato único en la zona horaria de la aplicación
+├── app.js                              # Express, CORS, rawBody, /health, /ready, montaje de rutas
 └── server.js                           # Punto de entrada (escucha en PORT)
 ```
 
@@ -188,7 +193,8 @@ no pasan por el middleware. Los guards de rol no cambian.
 
 ### Rate limiting
 
-- Global (router `/`): 1000 requests / 15 min, excluye `/health`.
+- Global (router `/`): 1000 requests / 15 min, excluye `/health` y `/ready`.
+- Por rol (después de autenticar): `admin` 1500, `tecnico` 600 y `cliente` 300 requests / 15 min. Sin rol cae en el límite público.
 - `POST /auth/login`: 15 requests / 15 min (solo cuenta los fallidos).
 - `PATCH /auth/password`: 10 requests / 15 min.
 - `POST /notificaciones/reporte/:uuid/enviar`: 20 requests / 15 min.
@@ -207,13 +213,43 @@ no pasan por el middleware. Los guards de rol no cambian.
 - **Errores de base de datos mapeados**: `responderError` (`error.middleware.js`) traduce `ER_DUP_ENTRY` → 409, `ER_DATA_TOO_LONG` → 400, `ER_NO_REFERENCED_ROW_2` → 400, etc. Los controllers lo usan en sus `catch` para que esas respuestas sí lleguen al cliente.
 - **Webhooks**: firmados con `node:crypto` + `fetch` (sin dependencias extra). `app.js` captura el **cuerpo crudo** con `express.json({ verify })` porque la firma se calcula sobre los bytes originales. **No quitar ese `verify`.**
 
-### Mantenimiento en segundo plano
+### Observabilidad
 
-`server.js` corre `limpiarConversacionesVencidas()` (`whatsappConversacion.service.js`) cada 15 minutos para que `whatsapp_conversaciones` no crezca sin control. El `setInterval` usa `unref()` y se cancela en el shutdown.
+- **pino** (`config/logs.js`) reemplaza `console.*` conservando la firma conocida. Cada petición lleva `X-Request-Id` (se reutiliza si el cliente manda uno válido) y los logs incluyen `requestId`, `userId`, `route`, `status` y `ms`. `password`, `token` y `authorization` se redactan.
+- **Sentry** (`config/sentry.js`) solo se inicializa si hay `SENTRY_DSN`; captura excepciones no manejadas con `requestId`, ruta y usuario. Usa `RENDER_GIT_COMMIT` como `release` cuando Render lo inyecta.
+- **Bitácora de negocio**: login/logout/cambio de contraseña, ticket creado, transiciones de estado, vinculación de cliente y webhooks procesados.
+
+### Idempotencia
+
+| Mecanismo | Dónde | Qué evita |
+|---|---|---|
+| `tickets.mensaje_externo_id` (UNIQUE) | Dominio | Dos tickets para el mismo `wamid` / `email_id` |
+| `incoming_events` | Webhooks | Procesar dos veces el mismo evento entregado |
+| `idempotency_keys` + `Idempotency-Key` | Endpoints mutantes | Repetir una escritura por reintento del cliente |
+
+`FF_INCOMING_EVENTS=observe` registra el evento y deja pasar; `enforce` omite los ya procesados. `FF_IDEMPOTENCY=enforce` activa la clave en crear ticket, conformidad pública, evidencias y transiciones. Sin tabla (despliegue previo a la migración) ambos mecanismos degradan y dejan pasar la petición.
+
+### Cifrado de credenciales (`claves`)
+
+Las columnas `password`, `pc_password` y `anydesk_password` se guardan cifradas con **AES-256-GCM** (`enc:v1:<iv>:<tag>:<ciphertext>`). La API las descifra solo al listarlas para el admin; al crear o actualizar se cifran antes del `INSERT`/`UPDATE`.
+
+- La clave vive en `CLAVES_ENCRYPTION_KEY`, nunca en la base de datos.
+- Los valores antiguos en texto plano se siguen leyendo (compatibilidad durante el despliegue).
+- Migración de datos existentes: `node scripts/cifrar-claves.js`.
+- Rollback: `node scripts/cifrar-claves.js --descifrar` y luego el `ALTER TABLE` inverso de `CAMBIOS-BD.txt`.
+- Si se pierde la clave, las credenciales cifradas no se pueden recuperar.
+
+### Validación de evidencias
+
+La API no confía en el frontend: además de validar URL/tipo/orden, hace un `HEAD` a la URL de Cloudinary (6 s de timeout, 5 en paralelo) y comprueba `Content-Type`, `Content-Length` y que el host esté en `EVIDENCIAS_HOSTS`. Si el `HEAD` falla por red, se registra el aviso y se guarda la evidencia; si responde con un tipo o tamaño inválido, se rechaza con 400. La resolución de la imagen no se comprueba en el backend.
+
+
+
+`server.js` corre cada 15 minutos la limpieza de `whatsapp_conversaciones`, `whatsapp_mensajes`, `incoming_events` (procesados/fallidos de más de 30 días) e `idempotency_keys` (más de 24 h) para que esas tablas no crezcan sin control. Las tareas se cancelan en el shutdown.
 
 ### Rutas montadas (sin prefijo `/api`)
 
-`/auth`, `/admin`, `/tecnicos`, `/clientes`, `/categorias`, `/evidencias`, `/notificaciones`, `/publico`, `/webhooks`, `/health`.
+`/auth`, `/admin`, `/tecnicos`, `/clientes`, `/categorias`, `/evidencias`, `/notificaciones`, `/publico`, `/webhooks`, `/health`, `/ready`.
 
 > `/webhooks` se monta **fuera** del router con rate limit global y **no** lleva autenticación.
 
@@ -346,7 +382,9 @@ Autorización: además de autenticado, el usuario debe ser propietario del repor
 | PATCH | `/admin/tickets/:uuid/vincular-cliente` | Admin | Vincular/desvincular cliente (`{ cliente_uuid }` o `null`) |
 | GET | `/admin/tickets/:uuid/gastos` | Admin | Gastos del ticket (**solo lectura**) |
 
-Filtros de `GET /admin/tickets`: `estado`, `tecnico_uuid`, `cliente_uuid`, `sin_cliente=true`, `empresa`, `fecha_desde`, `fecha_hasta`.
+Filtros de `GET /admin/tickets`: `estado`, `tecnico_uuid`, `cliente_uuid`, `sin_cliente=true`, `empresa`, `fecha_desde`, `fecha_hasta`, `cierre_desde`, `cierre_hasta`.
+
+Las fechas de filtro son días de **America/Lima**. Como la base guarda UTC, el SQL convierte con `CONVERT_TZ(..., '+00:00', '-05:00')` antes de comparar. Lima no tiene horario de verano, así que el offset fijo es seguro aunque MySQL no tenga cargadas las tablas de zonas horarias.
 
 ### Tickets (técnico)
 
@@ -417,8 +455,6 @@ Se puede filtrar por texto con `?buscar=` en `/admin/clientes`, `/admin/tecnicos
 
 Cada lectura o escritura de `/admin/claves` deja una fila en `claves_auditoria` (`user_id`, `user_email`, `accion`, `ip`, `user_agent`, `created_at`). No bloquea la respuesta: si el insert falla solo se avisa por consola.
 
-La tabla `claves` tiene `created_at` / `updated_at` (ver migración `002`). `/admin/claves` expone `updated_at` (columna "Último cambio" en el portal) pero **no** `created_at`.
-
 ### Webhooks (tickets entrantes)
 
 Sin autenticación. Firmas verificadas con `node:crypto` + `fetch`.
@@ -446,6 +482,8 @@ GET /publico/tickets/:identificador
 
 Acepta **UUID** o **código de ticket** (`TK-AJ7ZQVQ`, o `TK-AJ0001` en los anteriores); se normaliza a mayúsculas.
 
+La respuesta incluye las fechas crudas (UTC) y sus equivalentes en Lima: `created_at_lima`, `fecha_asignacion_lima`, `fecha_inicio_servicio_lima`, `fecha_cierre_lima` y `fecha_conformidad_lima`. Así cualquier cliente puede mostrar la hora correcta sin repetir la conversión.
+
 ### Confirmación del servicio por el cliente
 
 ```http
@@ -472,24 +510,36 @@ Reglas:
 
 Respuesta: `{ uuid, codigo, empresa_solicitante, nombre_solicitante, asunto, cliente_conforme, aprobado_por, motivo_no_conforme, fecha_conformidad }`.
 
-### Health Check
+### Health Check y readiness
 
 ```http
-GET /health
+GET /health   # liveness: el proceso está vivo. No toca la base.
+GET /ready    # readiness: MySQL responde y la configuración es válida.
 ```
 
-Comprueba también MySQL: responde **200** si la base responde y **503** con `"status": "degradado"` si no. Eso hace que Render reinicie el servicio cuando se cae la base.
+`/health` responde **200** siempre (salvo que el proceso esté caído) y sirve para que Render no reinicie por un problema de base de datos. `render.yaml` usa `healthCheckPath: /ready`.
 
-El mismo chequeo (`SELECT 1` con 8 s de timeout) se ejecuta como **preflight dentro de los dos webhooks**, después de validar la firma y antes de procesar. Si MySQL no responde el webhook devuelve **503** en vez de 500, para que el proveedor reintente la entrega en lugar de darla por perdida.
+`/ready` responde **200** cuando MySQL responde (`SELECT 1` con 8 s de timeout) y **503** cuando no. En desarrollo agrega el resumen de `incoming_events` (pendientes, procesando, fallidos, atascados); en producción oculta ese detalle y lo deja en logs/Sentry.
 
-Aparte, `warmup.service.js` hace ping a `/health` cada `WARMUP_MINUTOS` (10) dentro de `WARMUP_HORARIO` (`08:00-22:00`, hora de Lima) para que la instancia no entre en suspension. El destino es `WARMUP_URL` o, si no se define, la URL pública que Render inyecta como `RENDER_EXTERNAL_URL` — un ping a `localhost` **no** mantiene viva la instancia, porque el sleep lo decide el tráfico que entra por el proxy de Render. Fuera del horario el ping se omite y el preflight es lo que absorbe el arranque en frío.
+El mismo chequeo de MySQL se ejecuta como **preflight dentro de los dos webhooks**, después de validar la firma y antes de procesar. Si MySQL no responde el webhook devuelve **503** en vez de 500, para que el proveedor reintente la entrega en lugar de darla por perdida.
+
+Aparte, `warmup.service.js` hace ping a `/health` cada `WARMUP_MINUTOS` (10) dentro de `WARMUP_HORARIO` (`08:00-22:00`, hora de Lima) para que la instancia no entre en suspensión. El destino es `WARMUP_URL` o, si no se define, la URL pública que Render inyecta como `RENDER_EXTERNAL_URL` — un ping a `localhost` **no** mantiene viva la instancia, porque el sleep lo decide el tráfico que entra por el proxy de Render. El warmup conserva `/health` a propósito: solo necesita despertar el proceso, no esperar a la base.
 
 ```json
 {
   "status": "ok",
   "message": "Backend funcionando 🚀",
-  "database": "ok",
+  "uptime": 120,
   "environment": "production",
+  "timestamp": "2026-01-15T10:30:00.000Z"
+}
+```
+
+```json
+{
+  "status": "listo",
+  "database": "ok",
+  "configuration": "ok",
   "timestamp": "2026-01-15T10:30:00.000Z"
 }
 ```
@@ -537,12 +587,12 @@ El `PATCH` de conformidad sigue aceptando **solo UUID**. La asimetría es a prop
 
 ### Interacción de WhatsApp
 
-El canal de WhatsApp pide los cuatro campos (Empresa, Nombre, Asunto y **Descripción opcional**) y **crea el ticket en el mismo mensaje** en cuanto tiene los tres obligatorios:
+El canal de WhatsApp pide los cuatro campos (Empresa, Nombre, Asunto y **Descripción**) y **crea el ticket en el mismo mensaje** en cuanto tiene los tres obligatorios. La Descripción es muy recomendada porque ahí el cliente escribe a quién llamar, su celular y la ubicación; si no llega, el ticket se crea igual con los tres campos.
 
 | Situación | Qué hace el cliente | Qué hace el sistema |
 |---|---|---|
 | Sin datos | Escribe cualquier mensaje (ej. "hola") | Responde con `mensajeBienvenida()`. **No crea ticket** |
-| Datos completos | Envía Empresa, Nombre y Asunto | Crea el ticket en el acto y responde con `mensajeTicketCreado()` (código + enlace) |
+| Datos completos | Envía Empresa, Nombre, Asunto y Descripción | Crea el ticket en el acto y responde con `mensajeTicketCreado()` (código + enlace) |
 | Datos incompletos | Envía solo algunos campos, con la conversación ya abierta | Responde con `mensajeFaltanDatos(recibidos, faltantes)`, reconociendo lo que ya llegó |
 | Consulta de estado | Escribe "ya vieron mi caso", "cómo va mi ticket", "nadie me contesta"… | Busca el último ticket de ese número y responde con `mensajeConsultaEstado(codigo, url)` |
 | Consulta sin tickets | Lo mismo, pero sin tickets en la ventana | Responde con `mensajeSinTicket()` y abre la conversación |
@@ -554,7 +604,7 @@ El estado pendiente se guarda en `whatsapp_conversaciones` (clave primaria = nú
 **Modo estricto vs. libre.** `interpretarMensaje(texto, { permitirLibre })` acepta dos niveles:
 
 - **Estricto** (primera vez que escribe, sin conversación abierta): **solo** el formato con etiquetas. Sin él, "Hola, buenas tardes, mi PC no enciende" se convertiría en empresa="Hola" y crearía un ticket basura.
-- **Libre** (ya recibió la bienvenida): además acepta el formato por comas y el de 3 líneas.
+- **Libre** (ya recibió la bienvenida): además acepta el formato por comas y el de líneas (3 o más).
 
 **Idempotencia del webhook.** Los reintentos de Meta duplicaban respuestas: el ticket queda protegido por `mensaje_externo_id`, pero los mensajes del bot no. La tabla `whatsapp_mensajes` (PK = `mensaje_origen`) registra cada `wamid` **justo antes** de responder, mediante `responder()`. Un reintento sale por `duplicado: true` sin escribir nada. `limpiarMensajesAntiguos()` borra esas filas a los `WHATSAPP_MENSAJES_DIAS`.
 
@@ -570,21 +620,15 @@ El estado pendiente se guarda en `whatsapp_conversaciones` (clave primaria = nú
 
 ### Bitácora de webhooks
 
-Cada mensaje entrante deja **una única línea**. Todas las salidas de consola llevan hora de **America/Lima** en formato `DD/MM/AAAA - HH:MM:SS`, precedida de `||`, porque `src/config/logs.js` parchea `console` al arrancar. Las PII van enmascaradas (`j***@acme.com`, `519****1064`).
+Cada mensaje entrante deja **una única entrada**. `src/config/logs.js` parchea `console.*` a **pino**: en producción la salida es JSON de una línea con `level`, `time`, `servicio`, `entorno`, `requestId` y `msg`; en local se ve el mismo JSON. Las PII van enmascaradas (`j***@acme.com`, `519****1064`).
 
-```
-|| 17/10/2026 - 02:08:11  [whatsapp] Mensaje de 519****1064 → respondí pidiendo los datos
-|| 17/10/2026 - 02:08:32  [whatsapp] Mensaje de 519****1064 → creé el ticket TK-PA0001 y le devolví el código
-|| 17/10/2026 - 02:09:13  [resend] Mensaje de a***@acme.com → ticket TK-AC0002 creado
-|| 17/10/2026 - 02:09:13  [resend] Aviso interno del ticket TK-AC0002 → enviado a s***@nicksystem.com
-|| 17/10/2026 - 02:09:14  [resend] Respuesta a a***@acme.com → le envié el acuse con el código TK-AC0002
+```json
+{"level":"info","time":"2026-10-17T07:08:11.000Z","servicio":"nick-system-backend","entorno":"production","requestId":"6f1c...","msg":"[whatsapp] Mensaje de 519****1064 → respondí pidiendo los datos"}
+{"level":"info","time":"2026-10-17T07:08:32.000Z","servicio":"nick-system-backend","entorno":"production","requestId":"6f1c...","msg":"[whatsapp] Mensaje de 519****1064 → creé el ticket TK-PA0001 y le devolví el código"}
+{"level":"info","time":"2026-10-17T07:09:13.000Z","servicio":"nick-system-backend","entorno":"production","requestId":"8a2d...","msg":"[resend] Mensaje de a***@acme.com → ticket TK-AC0002 creado"}
 ```
 
-Las líneas que emite `bitacora()` llevan el prefijo `[canal]`; el resto (errores, avisos, banners de arranque) no lo llevan. En Render la línea aparece con **dos** timestamps porque la plataforma antepone el suyo propio en UTC y no es configurable:
-
-```
-2026-10-17T07:08:11Z || 17/10/2026 - 02:08:11  [whatsapp] Mensaje de 519****1064 → ...
-```
+Las líneas que emite `bitacora()` llevan el prefijo `[canal]`; el resto (errores, avisos, banners de arranque) no lo llevan. `X-Request-Id` se devuelve al cliente y aparece en todos los logs de esa petición. Los logs HTTP de acceso llevan `http.method`, `http.route`, `http.status` y `http.ms`; `/health` y `/ready` no generan línea.
 
 Canales: `whatsapp` (una línea por mensaje) y `resend` (tres: la entrada, el aviso interno y la respuesta al cliente).
 
@@ -622,30 +666,38 @@ Fuera de esas líneas solo aparecen **errores**, por `console.error`: rechazos p
 Mensajes enviados al cliente:
 
 ```
-Buenas noches 👋 Te damos la bienvenida a *Nick System*.
+Buenas noches 👋 Te damos la bienvenida a Nick System.
 
-Este canal es *solo para registrar tickets de soporte*. Aquí no se resuelven consultas técnicas.
+Este canal es solo para registrar tickets de soporte. Aquí no se resuelven consultas técnicas.
 
 Para crear tu ticket, envíame en un solo mensaje:
 
-🏢 *Empresa:* nombre de tu empresa
-👤 *Nombre:* tu nombre completo
-📝 *Asunto:* resumen del problema o solicitud
-📄 *Descripción (opcional):* detalles extra del problema
+🏢 Empresa: nombre de tu empresa
+👤 Nombre: tu nombre completo
+📝 Asunto: resumen del problema o solicitud
+📄 Descripción: Nombre, número de celular y ubicación de la persona a contactar
 
-*Ejemplo:*
+Ejemplo:
 Empresa: Acme
 Nombre: Juan Pérez
 Asunto: Mi computadora no enciende desde esta mañana
-Descripción: se queda con luz verde y no arranca
+Descripción: llamar a Juanito 999999999 tienda ate
+
+Ejemplo 2:
+Acme, Juan Pérez, Mi computadora no enciende desde esta mañana, llamar a Juanito 999999999 tienda ate
 
 Recibirás un código y un enlace para seguir el estado de tu solicitud.
 ```
+
+> El texto vive en `whatsappParser.service.js` (`mensajeBienvenida()`), no repartido por el código. El saludo se calcula con la hora de Lima.
 
 ```
 ✅ *Tu ticket fue creado correctamente.*
 
 🎫 Código: *TK-AJ7ZQVQ*
+
+📝 Asunto: Mi computadora no enciende desde esta mañana
+📄 Descripción: llamar a Juanito 999999999 tienda ate
 
 🔎 Consulta el estado aquí:
 http://localhost:5173/ticket/<uuid>
@@ -658,7 +710,7 @@ Gracias por contactarnos.
 ```
 Ya registramos tu ticket *TK-AJ7ZQVQ*. Puedes ver su estado aquí: http://localhost:5173/ticket/<uuid>
 
-Si quieres crear una solicitud nueva, envíame Empresa, Nombre y Asunto.
+Si quieres crear una solicitud nueva, envíame Empresa, Nombre, Asunto y Descripción.
 ```
 
 ```
@@ -676,7 +728,7 @@ Recibí un *audio* pero por este canal solo puedo leer texto. ✍️
 🏢 *Empresa:* nombre de tu empresa
 👤 *Nombre:* tu nombre completo
 📝 *Asunto:* resumen del problema o solicitud
-📄 *Descripción (opcional):* detalles extra del problema
+📄 *Descripción:* Nombre, número de celular y ubicación de la persona a contactar
 ```
 
 > El saludo se adapta a la hora de **America/Lima**: `Buenos días` (5–11), `Buenas tardes` (12–18), `Buenas noches` (19–4).
@@ -690,24 +742,33 @@ Recibí un *audio* pero por este canal solo puedo leer texto. ✍️
 Empresa: Acme
 Nombre: Juan Perez
 Asunto: Mi PC no enciende
+Descripción: llamar a Juanito 999999999 tienda ate
 ```
 
 ```
-Acme, Juan Perez, Mi PC no enciende
+Acme, Juan Perez, Mi PC no enciende, llamar a Juanito 999999999 tienda ate
 ```
 
 ```
 Acme
 Juan Perez
 Mi PC no enciende
+Llamar a Juanito 999999999
+Tienda ate
 ```
 
 ```
-Empresa: Acme
-Nombre: Juan Perez
-Asunto: Mi PC no enciende
-Descripción: Solo pasa cuando hay luz verde y no arranca   ← campo opcional
-Desde las 8am, ya probé en otro enchufe                       ← también sirve
+Acme, Juan Perez, Mi PC no enciende
+```
+
+**Formato por comas.** Se corta solo en las **tres primeras comas**: Empresa, Nombre y Asunto; todo lo que sigue (incluidas más comas) es la Descripción. El Asunto no puede contener comas en este formato; para eso están las etiquetas.
+
+```
+Nicksystem, Jose Rios, pc malograda, llamar a julio 995043713 tienda mazda
+→ Empresa: Nicksystem | Nombre: Jose Rios | Asunto: pc malograda | Descripción: llamar a julio 995043713 tienda mazda
+
+Acme, Juan, Sin internet, llamar a Ana, 999999999, sede centro
+→ Empresa: Acme | Nombre: Juan | Asunto: Sin internet | Descripción: llamar a Ana, 999999999, sede centro
 ```
 
 **Fuente única de etiquetas.** `ALIAS_ETIQUETA` es el único lugar donde viven los nombres. El regex es genérico (`/\b([a-zA-Z...]{3,12})\s*(?::\s*|\s+[-=]\s+)/g`): matchea cualquier `palabra:` y `ubicarEtiquetas()` descarta las que no son alias. Consecuencias:
@@ -717,11 +778,12 @@ Desde las 8am, ya probé en otro enchufe                       ← también sirv
 - No hay una lista de nombres duplicada que pueda desincronizarse (antes estaba copiada en el regex, en `sinEtiquetas()` y en el mapa de alias).
 - `mensaje`, `error` y `errors` se quitaron del mapa: `Mensaje de error: ...` colisionaba con texto libre.
 
-El cuarto campo **`descripcion`** es opcional y llena `tickets.descripcion`:
+El campo **`descripcion`** llena `tickets.descripcion`:
 
 - Con etiqueta explícita: `Descripción:`, `Desc:`, `Detalle:`, `Detalles:`, `Comentario:`, `Comentarios:`, `Nota:`, `Notas:`. Se guarda **completa, con todas sus líneas**.
-- Sin etiqueta: **cualquier línea extra debajo de `Asunto:`** se guarda como descripción.
-- Si no hay nada: `Sin descripción adicional`. Ya no se repite empresa/nombre/asunto como descripción, que solo confundía al técnico. En modo libre (texto sin etiquetas) sí se conserva el mensaje entero, porque ahí **es** la información.
+- En formato por comas o por líneas: lo que sigue al tercer campo.
+- Si el parseo funciona y no hay descripción: `Sin descripción adicional`. El mensaje completo **nunca** se guarda como descripción cuando ya se extrajeron los campos; solo se usa como respaldo si el parseo falla (ticket forzado tras varios intentos).
+- Si llegan solo tres campos (formato anterior), el ticket se crea igual y la Descripción queda vacía.
 
 `camposFaltantes(datos)` devuelve los obligatorios que no llegaron (`empresa`, `nombre`,
 `asunto`) y esa lista es la que se muestra en `mensajeFaltanDatos(recibidos, faltantes)`.
@@ -731,25 +793,23 @@ en minúsculas), así que `Compañía:`, `Descripción:` y `DESCRIPCION=` funcio
 `empresa:` y `descripcion:`.
 
 Con una sola etiqueta y 2+ comas, el valor se reinterpreta con `porComas()` como
-la terna `empresa, nombre, asunto`. Un asunto con comas propias **no** se parte,
+la terna `empresa, nombre, asunto` (y el resto como descripción). Un asunto con comas propias **no** se parte,
 porque hay etiqueta explícita.
 
 | Entrada | Resultado |
 |---|---|
-| `Empresa: Acme\nNombre: Juan\nAsunto: PC` | los tres separados |
-| `Empresa: Acme, Juan, PC` | `Acme` / `Juan` / `PC` (solo modo libre) |
-| `Empresa: Acme, Juan, mi PC no prende` | `Acme` / `Juan` / `mi PC no prende` |
-| `Asunto: el PC no prende, hace ruido` | un solo `asunto`, **sin partir** |
-| `Acme / Juan / PC` (3 líneas) | los tres separados (solo modo libre) |
-| `hola, mi laptop no funciona, ayuda` | los tres separados (**solo modo libre**) |
-| `Empresa: Acme Peru` (2 partes) | solo `empresa`, no inventa nombre |
+| `Empresa: Acme\nNombre: Juan\nAsunto: PC\nDescripción: tienda ate` | los cuatro campos |
+| `EMPRESA: Acme\nNOMBRE: Juan\nASUNTO: PC\nDESCRIPCION: tienda ate` | los cuatro (sin tilde y mayúsculas) |
+| `Acme, Juan, PC, tienda ate` (modo libre) | los cuatro; la descripción conserva comas |
+| `Acme, Juan, PC` (modo libre) | tres campos y descripción vacía |
+| `Acme\nJuan\nPC\nTienda ate\n8am` (modo libre) | las dos últimas líneas son la descripción |
+| `Acme, Juan, mi PC no prende` | `Acme` / `Juan` / `mi PC no prende` |
+| `hola, necesito ayuda` (modo libre) | no crea ticket: pide el formato |
 | `Compañía: Acme\nCliente: Juan\nAsunto: PC` | los tres separados (tildes y `ñ`) |
 | `…\nAsunto: PC\nParó a las 8am` | `asunto` + `descripcion` con la línea extra |
-| `…\nAsunto: PC\nParó a las 8am\nAyer iba bien` | `descripcion` con **las dos** líneas |
 | `username: jperez no me deja entrar` | nada: `\b` bloquea el alias `name` |
 | `el cliente-servidor no responde` | nada: el `-` sin espacios no es separador |
 | `Hola, buenas tardes, mi PC no enciende` | nada en modo estricto (evita ticket basura) |
-| `hola\ngracias\nadios` | nada en modo estricto (evita ticket basura) |
 
 Si no reconoce ninguno: empresa `TICKET_EMPRESA_WHATSAPP`, nombre del perfil de WhatsApp y asunto = primera línea del mensaje.
 
@@ -856,12 +916,14 @@ Tablas:
 - `tickets` — solicitudes entrantes. Campos clave: `canal` (`whatsapp` | `correo` | `manual`), `contacto_origen`, `mensaje_externo_id` (**UNIQUE**), `estado` (`pendiente` | `asignado` | `en_servicio` | `atendido` | `cancelado`), `fecha_inicio_servicio` (sella `en_servicio`), `tecnico_uuid` (**FK** a `tecnicos.uuid`), `cliente_uuid` (**sin FK**, lo vincula el admin a mano) y `vinculado_por` / `vinculado_at`.
 - `whatsapp_conversaciones` — conversación pendiente del canal WhatsApp (`numero` PK, `mensaje_origen` UNIQUE, `intentos`). Se borra al crear el ticket.
 - `whatsapp_mensajes` — idempotencia del webhook (`mensaje_origen` PK, `numero`, `created_at`). Se purga a los `WHATSAPP_MENSAJES_DIAS`.
+- `incoming_events` — idempotencia técnica de webhooks (`origen` + `evento_externo_id` UNIQUE, `estado`, `payload`, `intentos`, `error`). Se purga a los 30 días.
+- `idempotency_keys` — respuestas guardadas por `Idempotency-Key` (`clave` + `endpoint` + `user_id` UNIQUE). Se purga a las 24 h.
 
 Estructura completa en `database/schema.sql` (incluye un usuario admin **solo para desarrollo** `pruebas@nicksystem.com` con contraseña `pruebas123` y 13 categorías por defecto).
 
 ### Cambios de esquema
 
-`database/schema.sql` es la **única fuente** y usa `CREATE TABLE IF NOT EXISTS`, así que no altera bases que ya existen. Para cambiar el esquema hay dos casos:
+`database/schema.sql` es la **única fuente** para instalaciones nuevas y usa `CREATE TABLE IF NOT EXISTS`, así que no altera bases que ya existen. Para cambiar el esquema hay dos casos:
 
 **Base nueva** — correr `schema.sql` y ya:
 
@@ -869,16 +931,13 @@ Estructura completa en `database/schema.sql` (incluye un usuario admin **solo pa
 mysql -u root -p nicksystemlocal < database/schema.sql
 ```
 
-**Base existente** — escribir el `ALTER` a mano. **No hay archivo de migración**:
-el proyecto asume que los cambios de esquema se aplican una vez, por alguien que
-sabe qué está haciendo, y que a partir de ahí `schema.sql` ya describe el estado
-correcto.
+**Base existente** — aplicar a mano el bloque `SQL:` de la entrada correspondiente en **`database/CAMBIOS-BD.txt`**, que es el historial acumulativo (fecha, fase, SQL, rollback y entornos donde ya se aplicó). Cada cambio de código que toca el esquema debe agregar su entrada ahí en el mismo cambio. No se editan entradas antiguas.
 
 ```bash
-mysql -u root -p nicksystemlocal -e "ALTER TABLE tickets ..."
+mysql -u root -p nicksystemlocal -e "<SQL de la entrada>"
 ```
 
-Al aplicarlos, conviene comprobar que no quedaron filas a medias:
+Al aplicar un cambio, conviene comprobar que no quedaron filas a medias:
 
 ```sql
 SELECT COUNT(*) FROM tickets
@@ -900,21 +959,3 @@ ADMIN_EMAIL=tu-correo@dominio.com ADMIN_PASSWORD='clave-larga' node scripts/crea
 ```
 
 `scripts/hash.js "tu-contraseña"` genera un hash bcrypt suelto.
-
----
-
-## Despliegue en Render
-
-1. Conectar el repositorio GitHub.
-2. Render detecta `render.yaml` automáticamente (rama `main`, health check `/health`).
-3. Si la base de producción ya está al día con `schema.sql`, seguir al paso 4. Si le falta algo, aplicar el `ALTER` a mano (ver [Cambios de esquema](#cambios-de-esquema)).
-4. Configurar manualmente (`sync: false`): `DATABASE_URL`, `RESEND_API_KEY`, `FRONTEND_URL`, `ALLOWED_ORIGINS`, `RESEND_WEBHOOK_SECRET`, `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET`. `TRUST_PROXY` ya viene en `render.yaml`.
-5. Deploy automático en cada push a `main`.
-6. Post-deploy: crear el admin con contraseña propia antes de exponer el sistema.
-
-El `Dockerfile` usa multi-stage build con `node:20-alpine`, instala dependencias vía corepack/pnpm y ejecuta como usuario no-root.
-
-> **`pnpm-lock.yaml` está versionado.** Si no lo estuviera, `COPY package.json pnpm-lock.yaml ./` y `pnpm install --frozen-lockfile` fallarían en el build. No volver a añadirlo al `.gitignore`.
->
-> Hay un `.dockerignore`: sin él, `COPY . .` metería el `node_modules` del host (sobrescribiendo el install `--prod`) y el `.env` con los secretos dentro de la imagen. El build además falla a propósito si detecta cualquiera de los dos.
-

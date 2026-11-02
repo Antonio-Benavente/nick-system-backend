@@ -37,7 +37,7 @@ const limite = (valor, max, campo, etiqueta) => {
   return true;
 };
 
-const validateEmail = (email) => {
+export const validateEmail = (email) => {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!email || !emailRegex.test(email)) {
     throw new ValidationError("Email inválido", "email");

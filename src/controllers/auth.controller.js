@@ -1,10 +1,11 @@
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import pool from '../config/db.js';
+import { config } from '../config/env.js';
 import { validatePassword } from '../validators/validators.js';
+import { validarConZod, esquemaLogin } from '../validators/schemas.js';
 import { abortar } from '../middlewares/error.middleware.js';
-
-const JWT_EXPIRES_IN_POR_DEFECTO = '1d';
+import { bitacora, enmascararEmail } from '../services/bitacora.service.js';
 
 const HASH_IGUALADO =
   '$2a$10$SQ382ScImEnz2yL4zzZkv.NmveD76AEMu975vZwIhvdlCGwLiZ.b.';
@@ -26,8 +27,8 @@ const firmarToken = (user, sesionVersion) =>
       role: user.role,
       sv: sesionVersion
     },
-    process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN || JWT_EXPIRES_IN_POR_DEFECTO }
+    config.JWT_SECRET,
+    { expiresIn: config.JWT_EXPIRES_IN }
   );
 
 const estaActivo = async (user) => {
@@ -51,7 +52,12 @@ const estaActivo = async (user) => {
 };
 
 export const login = async (req, res) => {
-  const { email, password } = req.body;
+  const datos = validarConZod(esquemaLogin, req.body, {
+    modo: config.FF_ZOD_VALIDATION,
+    contexto: 'POST /auth/login'
+  });
+
+  const { email, password } = datos;
 
   if (typeof email !== 'string' || typeof password !== 'string' || !email.trim() || !password) {
     throw abortar(400, 'Email y contraseña son requeridos');
@@ -67,14 +73,18 @@ export const login = async (req, res) => {
   const isValid = await bcrypt.compare(password, user?.password || HASH_IGUALADO);
 
   if (!user || !isValid) {
+    bitacora('auth', `Inicio de sesión fallido para ${enmascararEmail(email)}`);
     throw abortar(401, 'Credenciales inválidas');
   }
 
   if (!(await estaActivo(user))) {
+    bitacora('auth', `Inicio de sesión rechazado (cuenta inactiva) para ${enmascararEmail(email)}`);
     throw abortar(401, 'Credenciales inválidas');
   }
 
   const token = firmarToken(user, user.sesion_version);
+
+  bitacora('auth', `Inicio de sesión correcto de ${enmascararEmail(user.email)} (rol ${user.role})`);
 
   res.json({
     token,
@@ -99,6 +109,8 @@ export const logout = async (req, res) => {
   await pool.query('UPDATE users SET sesion_version = sesion_version + 1 WHERE id = ?', [
     req.user.id
   ]);
+
+  bitacora('auth', `Cierre de sesión de ${enmascararEmail(req.user.email)}`);
 
   res.json({ message: 'Sesión cerrada correctamente' });
 };
@@ -143,6 +155,8 @@ export const cambiarPassword = async (req, res) => {
     'UPDATE users SET password = ?, sesion_version = sesion_version + 1 WHERE id = ?',
     [hash, req.user.id]
   );
+
+  bitacora('auth', `Cambio de contraseña de ${enmascararEmail(req.user.email)}`);
 
   res.json({ message: 'Contraseña actualizada. Inicia sesión nuevamente.' });
 };

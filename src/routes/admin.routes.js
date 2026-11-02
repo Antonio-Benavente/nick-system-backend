@@ -44,10 +44,12 @@ import {
 import authMiddleware from '../middlewares/auth.middleware.js';
 import roleMiddleware from '../middlewares/role.middleware.js';
 import { asyncHandler } from '../middlewares/async.middleware.js';
+import { idempotencia } from '../middlewares/idempotencia.middleware.js';
+import { limitadorPorRol } from '../middlewares/limitePorRol.middleware.js';
 
 const router = Router();
 
-router.use(authMiddleware, roleMiddleware('admin'));
+router.use(authMiddleware, roleMiddleware('admin'), limitadorPorRol);
 
 router.get('/dashboard', asyncHandler(getDashboardStats));
 
@@ -99,17 +101,21 @@ router.patch('/clientes/:uuid/restaurar', asyncHandler(restaurarCliente));
 
 router.get('/tickets', asyncHandler(listarAdmin));
 
-router.post('/tickets', asyncHandler(crearAdmin));
+router.post('/tickets', idempotencia, asyncHandler(crearAdmin));
 
 router.get('/tickets/:uuid', asyncHandler(detalleAdmin));
 
-router.patch('/tickets/:uuid/modalidad', asyncHandler(modalidadAdmin));
+router.patch('/tickets/:uuid/modalidad', idempotencia, asyncHandler(modalidadAdmin));
 
-router.patch('/tickets/:uuid/asignar', asyncHandler(asignarAdmin));
+router.patch('/tickets/:uuid/asignar', idempotencia, asyncHandler(asignarAdmin));
 
-router.patch('/tickets/:uuid/cancelar', asyncHandler(cancelarAdmin));
+router.patch('/tickets/:uuid/cancelar', idempotencia, asyncHandler(cancelarAdmin));
 
-router.patch('/tickets/:uuid/vincular-cliente', asyncHandler(vincularClienteAdmin));
+router.patch(
+  '/tickets/:uuid/vincular-cliente',
+  idempotencia,
+  asyncHandler(vincularClienteAdmin)
+);
 
 router.get('/tickets/:uuid/gastos', asyncHandler(verGastos));
 

@@ -20,9 +20,12 @@
   "packageManager": "pnpm@11.22.0",
   "scripts": {
     "dev": "nodemon src/server.js",
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "test": "node --import=./test/setup.js --test \"test/*.test.js\"",
+    "cifrar-claves": "node scripts/cifrar-claves.js"
   },
   "dependencies": {
+    "@sentry/node": "^11.10.0",
     "bcryptjs": "^2.4.3",
     "compression": "^1.8.2",
     "cors": "^2.8.6",
@@ -33,7 +36,9 @@
     "jsonwebtoken": "^9.0.3",
     "mysql2": "^3.24.6",
     "node-cron": "^4.6.0",
-    "resend": "^4.8.0"
+    "pino": "^10.4.0",
+    "resend": "^4.8.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

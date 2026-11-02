@@ -1,5 +1,7 @@
-import jwt from 'jsonwebtoken';
+﻿import jwt from 'jsonwebtoken';
 import pool from '../config/db.js';
+import { config } from '../config/env.js';
+import { contextoPeticion } from '../config/logs.js';
 
 const ESTADO_POR_DEFECTO = 'activo';
 
@@ -68,7 +70,7 @@ export default async function authMiddleware(req, res, next) {
 
   let payload;
   try {
-    payload = jwt.verify(token, process.env.JWT_SECRET);
+    payload = jwt.verify(token, config.JWT_SECRET);
   } catch (error) {
     console.warn(
       `Token rechazado en ${req.method} ${req.originalUrl}: ${error.name === 'TokenExpiredError' ? 'expirado' : 'inválido'}`
@@ -105,6 +107,9 @@ export default async function authMiddleware(req, res, next) {
         message: 'Tu cuenta está inactiva. Contacta al administrador.',
       });
     }
+
+    const contexto = contextoPeticion.getStore();
+    if (contexto) contexto.userId = usuario.id;
 
     req.user = {
       id: usuario.id,

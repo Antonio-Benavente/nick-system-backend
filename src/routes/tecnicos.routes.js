@@ -22,16 +22,18 @@ import { getClientes } from '../controllers/clientes.controller.js';
 import authMiddleware from '../middlewares/auth.middleware.js';
 import roleMiddleware from '../middlewares/role.middleware.js';
 import { asyncHandler } from '../middlewares/async.middleware.js';
+import { idempotencia } from '../middlewares/idempotencia.middleware.js';
+import { limitadorPorRol } from '../middlewares/limitePorRol.middleware.js';
 
 const router = Router();
 
-router.use(authMiddleware, roleMiddleware('tecnico'));
+router.use(authMiddleware, roleMiddleware('tecnico'), limitadorPorRol);
 
 router.get('/mi-perfil', asyncHandler(getMiPerfil));
 
 router.get('/mis-reportes', asyncHandler(getMisReportes));
 
-router.post('/reportes', asyncHandler(createReporte));
+router.post('/reportes', idempotencia, asyncHandler(createReporte));
 
 router.put('/reportes/:reporteUUID', asyncHandler(updateReporte));
 
@@ -43,9 +45,9 @@ router.get('/clientes', asyncHandler(getClientes));
 
 router.get('/mis-tickets', asyncHandler(misTickets));
 
-router.patch('/tickets/:uuid/iniciar-servicio', asyncHandler(iniciarServicioTecnico));
+router.patch('/tickets/:uuid/iniciar-servicio', idempotencia, asyncHandler(iniciarServicioTecnico));
 
-router.patch('/tickets/:uuid/atender', asyncHandler(atenderTecnico));
+router.patch('/tickets/:uuid/atender', idempotencia, asyncHandler(atenderTecnico));
 
 router.get('/tickets/:uuid/gastos', asyncHandler(verGastos));
 

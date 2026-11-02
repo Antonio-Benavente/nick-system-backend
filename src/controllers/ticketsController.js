@@ -14,6 +14,9 @@ import { bitacora } from '../services/bitacora.service.js';
 import emailService from '../services/email.service.js';
 import { urlSeguimiento } from '../services/ticketIngesta.service.js';
 import { abortar } from '../middlewares/error.middleware.js';
+import { config } from '../config/env.js';
+import { formatearFechaHoraLima } from '../utils/fechas.js';
+import { esquemaConformidadPublica, esquemaNuevoTicket, validarConZod } from '../validators/schemas.js';
 import {
   esUUID,
   validarAsignacion,
@@ -25,6 +28,9 @@ import {
   validarVinculo
 } from '../validators/ticketValidators.js';
 
+const OFFSET_LIMA = '-05:00';
+
+
 const ERRORES_TRANSICION = {
   no_existe: [404, 'Ticket no encontrado'],
   estado_invalido: [409, 'El ticket no puede cambiar desde su estado actual'],
@@ -34,7 +40,7 @@ const ERRORES_TRANSICION = {
   ]
 };
 
-const responderTransicion = async (res, resultado, uuid) => {
+const responderTransicion = async (res, resultado, uuid, { accion, actor } = {}) => {
   if (resultado !== 'ok') {
     const [codigo, message] = ERRORES_TRANSICION[resultado];
     return res.status(codigo).json({ message });
@@ -44,6 +50,14 @@ const responderTransicion = async (res, resultado, uuid) => {
     `SELECT ${COLUMNAS_TICKET} FROM tickets WHERE uuid = ?`,
     [uuid]
   );
+
+  if (accion) {
+    const ticket = filas[0];
+    bitacora(
+      'tickets',
+      `Ticket ${ticket?.codigo || uuid} → ${accion}${actor ? ` por ${actor}` : ''}`
+    );
+  }
 
   return res.json(filas[0]);
 };
@@ -78,20 +92,20 @@ export const listarAdmin = async (req, res) => {
     condiciones.push('cliente_uuid IS NULL');
   }
   if (filtros.fecha_desde) {
-    condiciones.push('DATE(created_at) >= ?');
-    parametros.push(filtros.fecha_desde);
+    condiciones.push("DATE(CONVERT_TZ(created_at, '+00:00', ?)) >= ?");
+    parametros.push(OFFSET_LIMA, filtros.fecha_desde);
   }
   if (filtros.fecha_hasta) {
-    condiciones.push('DATE(created_at) <= ?');
-    parametros.push(filtros.fecha_hasta);
+    condiciones.push("DATE(CONVERT_TZ(created_at, '+00:00', ?)) <= ?");
+    parametros.push(OFFSET_LIMA, filtros.fecha_hasta);
   }
   if (filtros.cierre_desde) {
-    condiciones.push('fecha_cierre IS NOT NULL AND DATE(fecha_cierre) >= ?');
-    parametros.push(filtros.cierre_desde);
+    condiciones.push("fecha_cierre IS NOT NULL AND DATE(CONVERT_TZ(fecha_cierre, '+00:00', ?)) >= ?");
+    parametros.push(OFFSET_LIMA, filtros.cierre_desde);
   }
   if (filtros.cierre_hasta) {
-    condiciones.push('fecha_cierre IS NOT NULL AND DATE(fecha_cierre) <= ?');
-    parametros.push(filtros.cierre_hasta);
+    condiciones.push("fecha_cierre IS NOT NULL AND DATE(CONVERT_TZ(fecha_cierre, '+00:00', ?)) <= ?");
+    parametros.push(OFFSET_LIMA, filtros.cierre_hasta);
   }
 
   const donde = condiciones.length ? `WHERE ${condiciones.join(' AND ')}` : '';
@@ -121,9 +135,17 @@ export const detalleAdmin = async (req, res) => {
 };
 
 export const crearAdmin = async (req, res) => {
-  const datos = validarNuevoTicket(req.body);
+  validarConZod(esquemaNuevoTicket, req.body, {
+    modo: config.FF_ZOD_VALIDATION,
+    contexto: 'crear ticket admin'
+  });
 
-  res.status(201).json(await crearTicket({ ...datos, canal: 'manual' }));
+  const datos = validarNuevoTicket(req.body);
+  const ticket = await crearTicket({ ...datos, canal: 'manual' });
+
+  bitacora('tickets', `Ticket ${ticket.codigo} creado manualmente por ${req.user?.email || 'admin'}`);
+
+  res.status(201).json(ticket);
 };
 
 export const modalidadAdmin = async (req, res) => {
@@ -137,6 +159,11 @@ export const modalidadAdmin = async (req, res) => {
   );
 
   if (!filas.length) throw abortar(404, 'Ticket no encontrado');
+
+  bitacora(
+    'tickets',
+    `Ticket ${filas[0].codigo} → modalidad ${modalidad} por ${req.user?.email || 'admin'}`
+  );
 
   res.json(filas[0]);
 };
@@ -154,7 +181,8 @@ export const asignarAdmin = async (req, res) => {
   await responderTransicion(
     res,
     await aplicarTransicion('asignar', req.params.uuid, { tecnicoUuid }),
-    req.params.uuid
+    req.params.uuid,
+    { accion: 'asignado', actor: req.user?.email || 'admin' }
   );
 };
 
@@ -162,7 +190,8 @@ export const cancelarAdmin = async (req, res) => {
   await responderTransicion(
     res,
     await aplicarTransicion('cancelar', req.params.uuid),
-    req.params.uuid
+    req.params.uuid,
+    { accion: 'cancelado', actor: req.user?.email || 'admin' }
   );
 };
 
@@ -186,6 +215,8 @@ export const vincularClienteAdmin = async (req, res) => {
       throw abortar(409, 'El ticket no estaba vinculado a ningún cliente');
     }
 
+    bitacora('tickets', `Ticket ${req.params.uuid} desvinculado de su cliente por ${req.user?.email || 'admin'}`);
+
     return res.json({ message: 'Ticket desvinculado correctamente', cliente_uuid: null });
   }
 
@@ -205,6 +236,11 @@ export const vincularClienteAdmin = async (req, res) => {
   const [filas] = await pool.query(
     `SELECT ${COLUMNAS_TICKET} FROM tickets WHERE uuid = ?`,
     [req.params.uuid]
+  );
+
+  bitacora(
+    'tickets',
+    `Ticket ${filas[0]?.codigo || req.params.uuid} vinculado a ${cliente[0].empresa} por ${req.user?.email || 'admin'}`
   );
 
   res.json({ ...filas[0], cliente: cliente[0] });
@@ -245,7 +281,8 @@ export const iniciarServicioTecnico = async (req, res) => {
   await responderTransicion(
     res,
     await aplicarTransicion('iniciar_servicio', req.params.uuid, { propietarioUuid: tecnico.uuid }),
-    req.params.uuid
+    req.params.uuid,
+    { accion: 'en servicio', actor: req.user?.email || tecnico.nombre }
   );
 };
 
@@ -262,7 +299,8 @@ export const atenderTecnico = async (req, res) => {
       propietarioUuid: tecnico.uuid,
       nota
     }),
-    req.params.uuid
+    req.params.uuid,
+    { accion: 'atendido', actor: req.user?.email || tecnico.nombre }
   );
 };
 
@@ -286,14 +324,28 @@ export const seguimientoPublico = async (req, res) => {
 
   if (!filas.length) throw abortar(404, 'Ticket no encontrado');
 
+  const ticket = filas[0];
+
   res.set('Cache-Control', 'no-store');
-  res.json(filas[0]);
+  res.json({
+    ...ticket,
+    created_at_lima: formatearFechaHoraLima(ticket.created_at),
+    fecha_asignacion_lima: formatearFechaHoraLima(ticket.fecha_asignacion),
+    fecha_inicio_servicio_lima: formatearFechaHoraLima(ticket.fecha_inicio_servicio),
+    fecha_cierre_lima: formatearFechaHoraLima(ticket.fecha_cierre),
+    fecha_conformidad_lima: formatearFechaHoraLima(ticket.fecha_conformidad)
+  });
 };
 
 export const registrarConformidadPublico = async (req, res) => {
   if (!esUUID(String(req.params.uuid || '').trim())) {
     throw abortar(404, 'Ticket no encontrado');
   }
+
+  validarConZod(esquemaConformidadPublica, req.body, {
+    modo: config.FF_ZOD_VALIDATION,
+    contexto: 'conformidad pública'
+  });
 
   const { conforme, aprobadoPor, motivo } = validarConformidad(req.body);
 

@@ -1,13 +1,14 @@
-import crypto from 'node:crypto';
+﻿import crypto from 'node:crypto';
+import { config } from '../config/env.js';
 import { enmascararTelefono } from './bitacora.service.js';
 
 const GRAPH = 'https://graph.facebook.com';
 
 // v26.0+ soporta enviar mensajes a BSUIDs (usuarios con username) vía `recipient`.
-const version = () => process.env.WHATSAPP_GRAPH_VERSION || 'v26.0';
+const version = () => config.WHATSAPP_GRAPH_VERSION;
 
 export const estaConfigurado = () =>
-  Boolean(process.env.WHATSAPP_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID);
+  Boolean(config.WHATSAPP_TOKEN && config.WHATSAPP_PHONE_NUMBER_ID);
 
 // Los Business-scoped User IDs de Meta (usuarios que adoptaron username) viajan
 // con el formato PAIS.lo-que-sea (por ejemplo PE.16899...). En la Messages API
@@ -24,11 +25,11 @@ export const enviarMensajeTexto = async (destino, cuerpo) => {
 
   try {
     const respuesta = await fetch(
-      `${GRAPH}/${version()}/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
+      `${GRAPH}/${version()}/${config.WHATSAPP_PHONE_NUMBER_ID}/messages`,
       {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
+          Authorization: `Bearer ${config.WHATSAPP_TOKEN}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
@@ -72,11 +73,11 @@ export const enviarSolicitudContacto = async (destino, texto) => {
 
   try {
     const respuesta = await fetch(
-      `${GRAPH}/${version()}/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
+      `${GRAPH}/${version()}/${config.WHATSAPP_PHONE_NUMBER_ID}/messages`,
       {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
+          Authorization: `Bearer ${config.WHATSAPP_TOKEN}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({

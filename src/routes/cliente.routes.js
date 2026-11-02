@@ -8,10 +8,11 @@ import {
 import authMiddleware from '../middlewares/auth.middleware.js';
 import roleMiddleware from '../middlewares/role.middleware.js';
 import { asyncHandler } from '../middlewares/async.middleware.js';
+import { limitadorPorRol } from '../middlewares/limitePorRol.middleware.js';
 
 const router = Router();
 
-router.use(authMiddleware, roleMiddleware('cliente'));
+router.use(authMiddleware, roleMiddleware('cliente'), limitadorPorRol);
 
 router.get('/mi-perfil', asyncHandler(getMiPerfil));
 

@@ -1,5 +1,6 @@
 import { createHmac, randomUUID } from 'node:crypto';
 import pool from '../config/db.js';
+import { config } from '../config/env.js';
 
 const inicial = (valor) => String(valor || '').trim().charAt(0).toUpperCase();
 
@@ -8,7 +9,7 @@ const LARGO_SUFIJO = 5;
 const INTENTOS_MAXIMOS = 5;
 
 const sufijoCodigo = (material) => {
-  const secreto = process.env.TICKET_CODIGO_SECRET || process.env.JWT_SECRET || 'nick-system';
+  const secreto = config.TICKET_CODIGO_SECRET || config.JWT_SECRET;
 
   const digesto = createHmac('sha256', secreto).update(material).digest();
   const bits = digesto.readUInt32BE(0);

@@ -1,4 +1,6 @@
 import { ValidationError } from '../validators/validators.js';
+import { config } from '../config/env.js';
+import { capturarExcepcion } from '../config/sentry.js';
 
 export class HttpError extends Error {
   constructor(statusCode, message, body = null) {
@@ -60,7 +62,7 @@ const ERRORES_BD = {
   }
 };
 
-const esDesarrollo = () => process.env.NODE_ENV === 'development';
+const esDesarrollo = () => config.ES_DESARROLLO;
 
 export const mapearError = (err) => ERRORES_BD[err?.code] || null;
 
@@ -91,6 +93,7 @@ export const responderError = (err, res, mensajePorDefecto) => {
     return res.status(status).json({
       error: 'ServerError',
       message: mensajePorDefecto || 'Error interno del servidor',
+      requestId: res.req?.id || undefined,
       ...(esDesarrollo() && { detail: err?.message, stack: err?.stack })
     });
   }
@@ -98,6 +101,7 @@ export const responderError = (err, res, mensajePorDefecto) => {
   return res.status(status).json({
     error: 'ClientError',
     message: err?.message || mensajePorDefecto || 'Error en la solicitud',
+    requestId: res.req?.id || undefined,
     ...(esDesarrollo() && { stack: err?.stack })
   });
 };
@@ -113,6 +117,7 @@ export const errorHandler = (err, req, res, next) => {
   const status = err instanceof HttpError ? err.statusCode : (err?.statusCode || 500);
 
   if (status >= 500) {
+    capturarExcepcion(err, req);
     console.error(`Error ${status} en ${donde}:`, err);
   } else if (esDesarrollo()) {
     console.warn(`Error ${status} en ${donde}: ${err?.message}`);
@@ -122,7 +127,8 @@ export const errorHandler = (err, req, res, next) => {
     return res.status(err.statusCode || 400).json({
       error: 'ValidationError',
       message: err.message,
-      field: err.field
+      field: err.field,
+      requestId: req.id || undefined
     });
   }
 

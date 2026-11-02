@@ -3,6 +3,11 @@ import { validateClave } from '../validators/validators.js';
 import { abortar } from '../middlewares/error.middleware.js';
 import { registrarAuditoriaClave } from '../services/auditoria.service.js';
 import { leerPaginacion, cabeceraPaginacion, contar } from '../services/paginacion.service.js';
+import {
+  cifrarCamposClave,
+  cifrarClave,
+  descifrarFilaClave
+} from '../services/clavesCifrado.service.js';
 
 const DUPLICADO_CORREO = 'Ya existe un correo con ese valor en esa empresa';
 const DUPLICADO_PC = 'Ya existe una credencial de PC y AnyDesk para esa empresa';
@@ -57,7 +62,7 @@ export const getClaves = async (req, res) => {
     [...params, paginacion.limite, paginacion.offset]
   );
 
-  res.json(rows);
+  res.json(rows.map(descifrarFilaClave));
 };
 
 export const createClave = async (req, res) => {
@@ -91,20 +96,33 @@ export const createClave = async (req, res) => {
     throw abortar(409, tipo === 'correo' ? DUPLICADO_CORREO : DUPLICADO_PC);
   }
 
+  const datos = cifrarCamposClave({
+    empresa: empresaTrim,
+    tipo,
+    nombre: nombre ? nombre.trim() : null,
+    usuario: usuario ? usuario.trim() : null,
+    password: password ?? null,
+    pc: pc ? pc.trim() : null,
+    pc_password: pc_password ?? null,
+    anydesk: anydesk ? anydesk.trim() : null,
+    anydesk_password: anydesk_password ?? null,
+    estado: 'activo'
+  });
+
   const [result] = await pool.query(
     `INSERT INTO claves (empresa, tipo, nombre, usuario, password, pc, pc_password, anydesk, anydesk_password, estado)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
-      empresaTrim,
-      tipo,
-      nombre ? nombre.trim() : null,
-      usuario ? usuario.trim() : null,
-      password ?? null,
-      pc ? pc.trim() : null,
-      pc_password ?? null,
-      anydesk ? anydesk.trim() : null,
-      anydesk_password ?? null,
-      'activo',
+      datos.empresa,
+      datos.tipo,
+      datos.nombre,
+      datos.usuario,
+      datos.password,
+      datos.pc,
+      datos.pc_password,
+      datos.anydesk,
+      datos.anydesk_password,
+      datos.estado
     ]
   );
 
@@ -142,7 +160,7 @@ export const updateClave = async (req, res) => {
     throw abortar(404, 'Clave no encontrada');
   }
 
-  const existing = rows[0];
+  const existing = descifrarFilaClave(rows[0]);
 
   if (body.tipo !== undefined && body.tipo !== existing.tipo) {
     throw abortar(400, 'No se puede cambiar el tipo de la clave');
@@ -174,7 +192,7 @@ export const updateClave = async (req, res) => {
     dupParams = [nuevaEmpresa, existing.tipo, nuevoUsuario, id];
     updateQuery = `UPDATE claves SET empresa = ?, tipo = ?, nombre = ?, usuario = ?, password = ?,
         pc = NULL, pc_password = NULL, anydesk = NULL, anydesk_password = NULL WHERE id = ?`;
-    updateParams = [nuevaEmpresa, existing.tipo, nuevoNombre, nuevoUsuario, nuevoPassword, id];
+    updateParams = [nuevaEmpresa, existing.tipo, nuevoNombre, nuevoUsuario, cifrarClave(nuevoPassword), id];
   } else {
     const nuevoPc = body.pc !== undefined ? body.pc.trim() : existing.pc;
     const nuevoPcPassword = body.pc_password !== undefined ? body.pc_password : existing.pc_password;
@@ -201,9 +219,9 @@ export const updateClave = async (req, res) => {
       existing.tipo,
       nuevoNombre,
       nuevoPc,
-      nuevoPcPassword,
+      cifrarClave(nuevoPcPassword),
       nuevoAnydesk,
-      nuevoAnydeskPassword,
+      cifrarClave(nuevoAnydeskPassword),
       id
     ];
   }

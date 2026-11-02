@@ -1,17 +1,9 @@
 import pool from '../config/db.js';
+import { config } from '../config/env.js';
 
-const MINUTOS_POR_DEFECTO = 30;
-const DIAS_MENSAJES_POR_DEFECTO = 7;
+const minutosVentana = () => config.WHATSAPP_CONVERSACION_MINUTOS;
 
-const minutosVentana = () => {
-  const valor = Number.parseInt(process.env.WHATSAPP_CONVERSACION_MINUTOS, 10);
-  return Number.isFinite(valor) && valor > 0 ? valor : MINUTOS_POR_DEFECTO;
-};
-
-const diasMensajes = () => {
-  const valor = Number.parseInt(process.env.WHATSAPP_MENSAJES_DIAS, 10);
-  return Number.isFinite(valor) && valor > 0 ? valor : DIAS_MENSAJES_POR_DEFECTO;
-};
+const diasMensajes = () => config.WHATSAPP_MENSAJES_DIAS;
 
 export const hayConversacionAbierta = async (numero) => {
   if (!numero) return false;

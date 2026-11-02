@@ -1,7 +1,22 @@
+import { config } from '../config/env.js';
 import { crearTicket, ticketPorMensajeExterno, ultimosTicketsPorContacto } from './ticketService.js';
 import emailService from './email.service.js';
 import { enviarMensajeTexto, enviarSolicitudContacto } from './whatsapp.service.js';
 import { bitacora, enmascararEmail, enmascararTelefono } from './bitacora.service.js';
+import {
+  CAMPOS_OBLIGATORIOS,
+  TIPOS_SIN_TEXTO,
+  camposFaltantes,
+  interpretarMensaje,
+  mensajeBienvenida,
+  mensajeConsultaEstado,
+  mensajeFaltanDatos,
+  mensajePideNumero,
+  mensajeSinTexto,
+  mensajeSinTicket,
+  mensajeTicketCreado,
+  pedirNumeroConFaltantes
+} from './whatsappParser.service.js';
 import {
   obtenerConversacion,
   abrirConversacion,
@@ -58,7 +73,7 @@ const empresaDesdeCorreo = (email) => {
   const dominio = email.split('@')[1] || '';
 
   if (!dominio || PROVEEDORES_GRATUITOS.has(dominio)) {
-    return process.env.TICKET_EMPRESA_CORREO || 'G';
+    return config.TICKET_EMPRESA_CORREO;
   }
 
   return dominio.slice(0, LIMITES.empresa);
@@ -82,7 +97,7 @@ const htmlATexto = (html) =>
     .trim();
 
 export const urlSeguimiento = (uuid) =>
-  `${(process.env.FRONTEND_URL || '').replace(/\/+$/, '')}/ticket/${uuid}`;
+  `${String(config.FRONTEND_URL || '').replace(/\/+$/, '')}/ticket/${uuid}`;
 
 const esDuplicado = (error) => Boolean(error) && error.code === 'ER_DUP_ENTRY';
 
@@ -109,7 +124,8 @@ const avisarInterno = async (ticket, datos, canal, canalLog) => {
     ...datos,
     canal,
     codigo: ticket.codigo,
-    url: urlSeguimiento(ticket.uuid)
+    url: urlSeguimiento(ticket.uuid),
+    fecha: new Date()
   });
 
   const internos = emailService.destinatariosTicketInterno();
@@ -133,7 +149,7 @@ const esAutomatico = (correo, email) => {
     return true;
   }
 
-  const propio = parsearRemitente(process.env.EMAIL_FROM).email;
+  const propio = parsearRemitente(config.EMAIL_FROM).email;
   if (email && propio && email === propio) return true;
 
   const autoSubmitted = correo.headers && correo.headers['auto-submitted'];
@@ -196,7 +212,10 @@ export const ingestarCorreo = async (correo) => {
     to: email,
     nombre,
     codigo: ticket.codigo,
-    url: urlTicket
+    url: urlTicket,
+    asunto,
+    descripcion,
+    fecha: new Date()
   });
 
   if (!acuse.success) {
@@ -219,179 +238,12 @@ const contenidoWhatsapp = (mensaje) => {
   return '';
 };
 
-// Las etiquetas llegan con tildes, mayúsculas o "ñ", así que se comparan ya normalizadas.
-const normalizarEtiqueta = (texto) =>
-  String(texto || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/ñ/gi, 'n')
-    .replace(/[^\w]/g, '')
-    .toLowerCase();
-
-/**
- * Única fuente de verdad de las etiquetas. Todo lo demás se deriva de aquí:
- * el parser no mantiene una lista paralela de nombres, así que no pueden
- * desincronizarse. Se descartaron `mensaje`, `error` y `errors` porque
- * "Mensaje de error: ..." colisionaba con texto libre.
- */
-const ALIAS_ETIQUETA = {
-  empresa: 'empresa',
-  compania: 'empresa',
-  company: 'empresa',
-  nombre: 'nombre',
-  cliente: 'nombre',
-  name: 'nombre',
-  asunto: 'asunto',
-  motivo: 'asunto',
-  tema: 'asunto',
-  problema: 'asunto',
-  subject: 'asunto',
-  descripcion: 'descripcion',
-  desc: 'descripcion',
-  detalle: 'descripcion',
-  detalles: 'descripcion',
-  comentario: 'descripcion',
-  comentarios: 'descripcion',
-  nota: 'descripcion',
-  notas: 'descripcion'
-};
-
-// `\b` evita que "username:" active "name:". El separador exige `:` pegado o
-// espacios alrededor de `-`/`=`, así "cliente-servidor" no activa "cliente".
-const PATRON_ETIQUETA =
-  /\b([a-zA-ZÁÉÍÓÚÜÑáéíóúüñ]{3,12})\s*(?::\s*|\s+[-=]\s+)/g;
-
-// Ubica las etiquetas reales: matchea cualquier "palabra:" y descarta las que no
-// son alias, para que no partan en trozos los valores ya leídos.
-const ubicarEtiquetas = (texto) =>
-  [...texto.matchAll(PATRON_ETIQUETA)]
-    .map((coincidencia) => ({
-      campo: ALIAS_ETIQUETA[normalizarEtiqueta(coincidencia[1])],
-      inicio: coincidencia.index,
-      fin: coincidencia.index + coincidencia[0].length
-    }))
-    .filter((marca) => marca.campo);
-
-const CAMPOS_OBLIGATORIOS = ['empresa', 'nombre', 'asunto'];
-
-const ETIQUETA_CAMPO = {
-  empresa: '🏢 *Empresa:* nombre de tu empresa',
-  nombre: '👤 *Nombre:* tu nombre completo',
-  asunto: '📝 *Asunto:* resumen del problema o solicitud',
-  descripcion: '📄 *Descripción (opcional):* detalles extra del problema'
-};
-
-// Los tres obligatorios más el cuarto, que es opcional.
-const LISTA_CAMPOS = [
-  ...CAMPOS_OBLIGATORIOS.map((campo) => ETIQUETA_CAMPO[campo]),
-  ETIQUETA_CAMPO.descripcion
-];
-
-const EJEMPLO_CAMPOS = [
-  'Empresa: Acme',
-  'Nombre: Juan Pérez',
-  'Asunto: Mi computadora no enciende desde esta mañana',
-  'Descripción: se queda con luz verde y no arranca'
-];
-
-const porComas = (texto) => {
-  const partes = texto.split(',').map((parte) => parte.trim());
-
-  if (partes.length < 3) return null;
-
-  return {
-    empresa: partes[0],
-    nombre: partes[1],
-    asunto: partes.slice(2).join(',').trim()
-  };
-};
-
-// Un valor puede traer líneas extra debajo del campo principal: la primera es el
-// campo y las demás son la descripción que el cliente escribió sin etiquetar.
-const repartirValor = (valor) => {
-  const lineas = String(valor || '')
-    .split('\n')
-    .map((linea) => linea.trim())
-    .filter(Boolean);
-
-  return { principal: lineas[0] || '', sobrante: lineas.slice(1).join('\n').trim() };
-};
-
-/**
- * `permitirLibre` habilita los formatos por comas y por 3 líneas. Solo se activa
- * cuando el cliente YA recibió la bienvenida: antes de eso el mensaje es texto
- * libre ("Hola, buenas tardes, mi PC no enciende") y esas reglas fabricarían
- * tickets basura sin pasar por el pedido de datos.
- */
-const interpretarMensaje = (texto, { permitirLibre = false } = {}) => {
-  const normalizado = String(texto || '').replace(/\r\n?/g, '\n');
-  const marcas = ubicarEtiquetas(normalizado);
-  const datos = {};
-  let sobrante = '';
-
-  marcas.forEach((marca, indice) => {
-    const campo = marca.campo;
-    const fin = indice + 1 < marcas.length ? marcas[indice + 1].inicio : normalizado.length;
-    const bruto = normalizado
-      .slice(marca.fin, fin)
-      .trim()
-      .replace(/[\s,;]+$/, '');
-
-    if (!bruto) return;
-
-    // La descripción se guarda completa, con todas sus líneas: "Descripción:"
-    // seguido de varios renglones es texto seguido, no una lista de campos.
-    if (campo === 'descripcion') {
-      if (datos.descripcion === undefined) datos.descripcion = bruto;
-      return;
-    }
-
-    const { principal, sobrante: extra } = repartirValor(bruto);
-
-    if (principal && datos[campo] === undefined) {
-      datos[campo] = principal;
-      if (extra) sobrante = [sobrante, extra].filter(Boolean).join('\n');
-    }
-  });
-
-  if (datos.descripcion === undefined && sobrante) datos.descripcion = sobrante;
-
-  const etiquetasUsadas = Object.keys(datos).length;
-
-  if (!etiquetasUsadas) {
-    if (!permitirLibre) return datos;
-
-    const lineas = normalizado.split('\n').map((linea) => linea.trim()).filter(Boolean);
-    if (lineas.length === 3) {
-      return { empresa: lineas[0], nombre: lineas[1], asunto: lineas[2], descripcion: normalizado };
-    }
-
-    return porComas(normalizado) || datos;
-  }
-
-  if (etiquetasUsadas === 1) {
-    const unico = Object.keys(datos)[0];
-    const desglose = porComas(datos[unico]);
-
-    if (desglose) {
-      delete datos[unico];
-      return { ...desglose, descripcion: datos.descripcion };
-    }
-  }
-
-  return datos;
-};
-
-export const camposFaltantes = (datos) =>
-  CAMPOS_OBLIGATORIOS.filter((campo) => !String(datos?.[campo] || '').trim());
-
 // Cliente preguntando por un caso ya registrado ("¿ya vieron mi caso?").
 // Se quitó `mi solicitud` / `mi reporte`: "Quiero registrar mi solicitud" contiene
 // la frase y respondía con el estado en vez de con la bienvenida.
 const PATRON_CONSULTA_ESTADO =
   /ya\s+(?:vieron|revisaron|revisan|miraron|atendieron|resolvieron|respondieron|contestaron|lo\s+(?:vieron|resolvieron|revisaron)|me\s+(?:respondieron|contestaron|atendieron))\b|mi\s+(?:caso|ticket)\b|\bestado\s+(?:de|del)\b|c[oó]mo\s+va\b|\bavance\s+de\b|\bseguimiento\s+de\b|nadie\s+me\s+(?:responde|atiende|contesta)|nadie\s+(?:ha\s+)?contesta/i;
 
-// Una consulta real es corta. Los intentos de crear un ticket son largos.
 const LARGO_CONSULTA_MAXIMO = 120;
 
 const esConsultaEstado = (texto) => {
@@ -402,170 +254,10 @@ const esConsultaEstado = (texto) => {
   return PATRON_CONSULTA_ESTADO.test(cuerpo);
 };
 
-const saludoPorHora = () => {
-  const hora = Number.parseInt(
-    new Intl.DateTimeFormat('en-US', { timeZone: 'America/Lima', hour: '2-digit', hour12: false }).format(new Date()),
-    10
-  );
+const intentosMaximos = () => config.WHATSAPP_INTENTOS_MAXIMOS;
 
-  if (hora < 12) return 'Buenos días';
-  if (hora < 19) return 'Buenas tardes';
-  return 'Buenas noches';
-};
+const diasConsultaTicket = () => config.WHATSAPP_CONSULTA_TICKET_DIAS;
 
-// Línea de urgencias. Solo se agrega si hay contacto configurado, para no
-// mandar al cliente a un número vacío.
-const lineaUrgencia = () => {
-  const telefono = String(process.env.TICKET_URGENCIA_TELEFONO || '').trim();
-  const correo = String(process.env.TICKET_URGENCIA_EMAIL || '').trim();
-
-  if (!telefono && !correo) return [];
-
-  const contactos = [telefono, correo].filter(Boolean).join(' o ');
-
-  return ['', `🚨 Si es una *urgencia*, llámanos o escríbenos: ${contactos}`];
-};
-
-export const mensajeBienvenida = () =>
-  [
-    `${saludoPorHora()} 👋 Te damos la bienvenida a *Nick System*.`,
-    '',
-    'Este canal es *solo para registrar tickets de soporte*. Aquí no se resuelven consultas técnicas.',
-    '',
-    'Para crear tu ticket, envíame en un solo mensaje:',
-    '',
-    ...LISTA_CAMPOS,
-    '',
-    '*Ejemplo:*',
-    ...EJEMPLO_CAMPOS,
-    '',
-    'Recibirás un código y un enlace para seguir el estado de tu solicitud.'
-  ].join('\n');
-
-export const mensajeTicketCreado = (codigo, url) =>
-  [
-    '✅ *Tu ticket fue creado correctamente.*',
-    '',
-    `🎫 Código: *${codigo}*`,
-    '',
-    '🔎 Consulta el estado aquí:',
-    url,
-    '',
-    'Gracias por contactarnos.',
-    ...lineaUrgencia()
-  ].join('\n');
-
-export const mensajeConsultaEstado = (codigo, url) =>
-  [
-    `Ya registramos tu ticket *${codigo}*. Puedes ver su estado aquí: ${url}`,
-    '',
-    'Si quieres crear una solicitud nueva, envíame Empresa, Nombre y Asunto.'
-  ].join('\n');
-
-export const mensajeSinTicket = () =>
-  [
-    'No tengo solicitudes registradas desde este número.',
-    '',
-    'Para crear una nueva, envíame en un solo mensaje:',
-    '',
-    ...LISTA_CAMPOS,
-    '',
-    '*Ejemplo:*',
-    ...EJEMPLO_CAMPOS
-  ].join('\n');
-
-// Audios, fotos y documentos: el bot no los lee, hay que decirlo.
-export const mensajeSinTexto = (tipo) =>
-  [
-    `Recibí un *${tipo}* pero por este canal solo puedo leer texto. ✍️`,
-    '',
-    ...LISTA_CAMPOS
-  ].join('\n');
-
-// Meta no manda el teléfono de quienes adoptaron un username (Business-scoped
-// User ID, formato PAIS.lo-que-sea). Vía principal: el botón oficial; como
-// alternativa, escribir el número como texto. Lo ya aportado queda guardado.
-export const mensajePideNumero = () =>
-  [
-    'Para crear tu ticket necesito tu número de WhatsApp: ese dato no me llegó. 📱',
-    '',
-    'Toca el botón *Compartir mi número* de abajo,',
-    'o escríbeme en un mensaje aparte solo tu número, con prefijo de país (por ejemplo *51987654321*).',
-    '',
-    'Después, escríbeme los datos de tu caso en un solo mensaje:',
-    '',
-    ...LISTA_CAMPOS,
-    '',
-    '*Ejemplo:*',
-    ...EJEMPLO_CAMPOS
-  ].join('\n');
-
-// Va dentro del cuerpo del botón: número que falta + aviso de que lo ya
-// escrito se conserva, con la alternativa de escribir el número como texto.
-const pedirNumeroConFaltantes = (recibidos, faltantes) => [
-  'Para crear tu ticket necesito tu número de WhatsApp. 📱',
-  '',
-  'Toca el botón *Compartir mi número* de abajo,',
-  'o escríbeme en un mensaje aparte solo tu número, con prefijo de país (por ejemplo *51987654321*).',
-  '',
-  recibidos.length
-    ? `Recibí tu ${enumerar(recibidos)}. Completa con esto en tu siguiente mensaje:`
-    : 'En tu siguiente mensaje envía:',
-  ...faltantes.map((campo) => `• ${ETIQUETA_CAMPO[campo] || campo}`),
-  '',
-  'Lo que ya escribiste queda guardado, no necesitas repetirlo.'
-].join('\n');
-
-const enumerar = (palabras) => {
-  if (palabras.length <= 1) return palabras.join('');
-  return `${palabras.slice(0, -1).join(', ')} y ${palabras[palabras.length - 1]}`;
-};
-
-// Reconoce lo que ya llegó para que el cliente no sienta que empieza de cero.
-export const mensajeFaltanDatos = (recibidos, faltantes) => {
-  const recibido = CAMPOS_OBLIGATORIOS.filter((campo) => recibidos.includes(campo));
-
-  const encabezado = recibido.length
-    ? `Recibí tu ${enumerar(recibido)}.`
-    : 'Todavía no tengo los datos de tu solicitud.';
-
-  return [
-    `⚠️ ${encabezado}`,
-    '',
-    'Me falta:',
-    ...faltantes.map((campo) => `• ${ETIQUETA_CAMPO[campo] || campo}`),
-    '',
-    'Envíame los datos que faltan en un solo mensaje.'
-  ].join('\n');
-};
-
-const TIPOS_SIN_TEXTO = {
-  audio: 'audio',
-  image: 'imagen',
-  video: 'video',
-  document: 'documento',
-  sticker: 'sticker',
-  location: 'ubicación',
-  contacts: 'contacto'
-};
-
-// Tras este número de intentos fallidos el ticket se crea igual, con los valores
-// por defecto. Evita el bucle infinito de "faltan datos".
-const intentosMaximos = () => {
-  const valor = Number.parseInt(process.env.WHATSAPP_INTENTOS_MAXIMOS, 10);
-  return Number.isFinite(valor) && valor > 0 ? valor : 2;
-};
-
-// Ventana para "ya vieron mi caso": evita devolver un ticket de hace meses.
-const diasConsultaTicket = () => {
-  const valor = Number.parseInt(process.env.WHATSAPP_CONSULTA_TICKET_DIAS, 10);
-  return Number.isFinite(valor) && valor > 0 ? valor : 90;
-};
-
-/**
- * Número compartido con el botón REQUEST_CONTACT_INFO (origin contact_request,
- * el usuario mismo) o con una tarjeta: Meta lo entrega en phones[].phone.
- */
 const telefonoCompartido = (mensaje) => {
   if (mensaje.type !== 'contacts') return '';
 
@@ -579,26 +271,17 @@ const telefonoCompartido = (mensaje) => {
   return '';
 };
 
-/**
- * Número escrito como texto: solo si el mensaje entero es dígitos (con los
- * separadores habituales). Si no trae prefijo y tiene 9 dígitos (formato
- * local peruano) se le antepone el prefijo del país configurado.
- */
 const telefonoEscrito = (texto) => {
   const digitos = String(texto || '')
     .replace(/[+\s().-]/g, '')
-    .replace(/^0+/,'');
+    .replace(/^0+/, '');
 
   if (digitos.length < 9 || digitos.length > 15) return '';
   if (!/^\d+$/.test(digitos)) return '';
 
-  const prefijo = process.env.WHATSAPP_PREFIJO_PAIS || '51';
-  return digitos.length === 9 ? prefijo + digitos : digitos;
+  return digitos.length === 9 ? config.WHATSAPP_PREFIJO_PAIS + digitos : digitos;
 };
 
-/**
- * Pide el número con el botón de Meta, con la misma idempotencia de `responder`.
- */
 const responderPedirContacto = async (bsuid, mensajeId, cuerpo) => {
   const esNuevo = await registrarMensajeProcesado(mensajeId, bsuid);
 
@@ -636,8 +319,6 @@ const responder = async (telefono, mensajeId, cuerpo) => {
 
   const respuesta = await enviarMensajeTexto(telefono, cuerpo);
 
-  // El registro de idempotencia solo cuenta si el envío salió: si Meta lo
-  // rechazó lo liberamos para que su reintento pueda volver a intentarlo.
   if (!respuesta.success) {
     await descartarMensajeProcesado(mensajeId).catch(() => {});
   }
@@ -662,7 +343,7 @@ const registrarTicketYAcuse = async ({
   const etiqueta = enmascararTelefono(remitente);
 
   const empresa =
-    recortar(datos.empresa, LIMITES.empresa) || process.env.TICKET_EMPRESA_WHATSAPP || 'WhatsApp';
+    recortar(datos.empresa, LIMITES.empresa) || config.TICKET_EMPRESA_WHATSAPP;
   const nombre =
     recortar(datos.nombre, LIMITES.nombre) || recortar(nombreContacto, LIMITES.nombre) || 'Contacto';
   const asunto =
@@ -670,11 +351,9 @@ const registrarTicketYAcuse = async ({
     recortar(primeraLinea(fuenteTexto), LIMITES.asunto) ||
     'Solicitud por WhatsApp';
 
-  // Si los datos vinieron etiquetados, repetir empresa/nombre/asunto como
-  // descripción solo confunde al técnico. El texto libre sí se conserva entero.
   const descripcion =
     recortar(datos.descripcion, LIMITES.descripcion) ||
-    (permitirLibre ? recortar(fuenteTexto, LIMITES.descripcion) : '') ||
+    (!datos.parseado && permitirLibre ? recortar(fuenteTexto, LIMITES.descripcion) : '') ||
     'Sin descripción adicional';
 
   const ticket = await registrar({
@@ -697,7 +376,7 @@ const registrarTicketYAcuse = async ({
       await responder(
         remitente,
         `acuse:${wamid}`,
-        mensajeTicketCreado(ticket.codigo, urlSeguimiento(ticket.uuid))
+        mensajeTicketCreado(ticket.codigo, urlSeguimiento(ticket.uuid), { asunto, descripcion })
       );
     }
 
@@ -717,7 +396,7 @@ const registrarTicketYAcuse = async ({
     const acuse = await responder(
       remitente,
       `acuse:${wamid}`,
-      mensajeTicketCreado(ticket.codigo, urlSeguimiento(ticket.uuid))
+      mensajeTicketCreado(ticket.codigo, urlSeguimiento(ticket.uuid), { asunto, descripcion })
     );
 
     if (!acuse.success) {
@@ -748,8 +427,6 @@ const retomarConNumero = async (bsuid, numero, mensajeId, nombreContacto) => {
   if (previa) await cerrarConversacion(bsuid);
 
   if (faltantes.length) {
-    // Datos incompletos: la conversación se reabre con el número, conservando
-    // lo ya aportado y los intentos, para que el forzado siga aplicando.
     const recibidos = CAMPOS_OBLIGATORIOS.filter((campo) => !faltantes.includes(campo));
 
     await abrirConversacion(numero, mensajeId);
@@ -769,7 +446,6 @@ const retomarConNumero = async (bsuid, numero, mensajeId, nombreContacto) => {
     return { creado: false, telefono_recibido: true, mensaje: respuesta };
   }
 
-  // Datos completos: el ticket se crea de una vez con lo acumulado.
   const resultado = await registrarTicketYAcuse({
     datos: datosPrevios,
     fuenteTexto: datosPrevios.descripcion || '',
@@ -785,7 +461,7 @@ const retomarConNumero = async (bsuid, numero, mensajeId, nombreContacto) => {
     `Usuario ${enmascararTelefono(bsuid)} compartió el número ${enmascararTelefono(numero)} → ${
       resultado.creado
         ? `creé el ticket ${resultado.codigo} con sus datos guardados, sin pedirle nada de nuevo`
-        : `no se pudo crear el ticket con sus datos guardados`
+        : 'no se pudo crear el ticket con sus datos guardados'
     }`
   );
 
@@ -800,9 +476,6 @@ export const ingestarWhatsapp = async (mensaje, contacto) => {
   const contenido = contenidoTexto || `[Mensaje recibido de tipo ${mensaje.type || 'desconocido'}]`;
   const mensajeId = mensaje.id || `sin-id-${Date.now()}`;
 
-  // 0) Evento sin remitente: no hay a quién responder ni manera de identificar
-  // al usuario. Se bitacorea el objeto crudo (sin el texto del cliente) para
-  // identificar qué nos entregó Meta exactamente.
   if (!telefono && !bsuid) {
     const depurar = (objeto) =>
       JSON.stringify(objeto, (clave, valor) =>
@@ -818,8 +491,6 @@ export const ingestarWhatsapp = async (mensaje, contacto) => {
     return { creado: false, sin_remitente: true };
   }
 
-  // 0.5) El usuario compartió su número (tocó el botón REQUEST_CONTACT_INFO o
-  // nos pasó su tarjeta). Solo importa para remitentes sin teléfono.
   if (!telefono && mensaje.type === 'contacts') {
     const numero = telefonoCompartido(mensaje);
 
@@ -835,21 +506,12 @@ export const ingestarWhatsapp = async (mensaje, contacto) => {
     return await retomarConNumero(bsuid, numero, mensajeId, nombreContacto);
   }
 
-  // Eventos internos de Meta (cambios de número en 'system', reacciones y
-  // ediciones) no son peticiones del usuario: no generan respuesta ni cuentan
-  // intentos en ningún remitente, solo se registran.
   if (mensaje.type === 'system' || mensaje.type === 'reaction' || mensaje.type === 'edit') {
     bitacora('whatsapp', `Evento de ${mensaje.type}, no generó respuesta. remitente=${enmascararTelefono(telefono || bsuid)}`);
     return { creado: false, evento_interno: true };
   }
 
-  // 0.6) Remitente identificable solo por BSUID: adoptó un username de Meta y
-  // por eso el webhook no trae su teléfono (por ejemplo, contacto de hace más
-  // de 30 días). Se acumulan los datos que aporte y se le pide el número con
-  // el botón oficial; como alternativa acepta el número escrito como texto,
-  // y al llegar, el ticket sale sin repetir nada.
   if (!telefono) {
-    // Si el mensaje entero son dígitos, ya nos dio su número.
     if (contenidoTexto && /^\d/.test(contenidoTexto)) {
       const numero = telefonoEscrito(contenidoTexto);
 
@@ -862,7 +524,6 @@ export const ingestarWhatsapp = async (mensaje, contacto) => {
     const conversacion = await obtenerConversacion(bsuid);
     const permitirLibre = Boolean(conversacion);
 
-    // Acumular sin pisar: lo nuevo completa lo que faltaba.
     const acumulados = { ...(conversacion?.datos || {}) };
     const interpretados = interpretarMensaje(contenido, { permitirLibre });
     for (const campo of CAMPOS_OBLIGATORIOS) {
@@ -877,7 +538,6 @@ export const ingestarWhatsapp = async (mensaje, contacto) => {
     const faltantes = camposFaltantes(acumulados);
     const recibidos = CAMPOS_OBLIGATORIOS.filter((campo) => !faltantes.includes(campo));
 
-    // Persistir el avance antes de responder.
     if (!conversacion) await abrirConversacion(bsuid, mensajeId);
     await sumarIntento(bsuid);
     await guardarDatos(bsuid, acumulados);
@@ -904,7 +564,6 @@ export const ingestarWhatsapp = async (mensaje, contacto) => {
     return { creado: false, sin_telefono: true, mensaje: respuesta };
   }
 
-  // 1) Audio, foto o documento: no hay nada que interpretar.
   if (!contenidoTexto && TIPOS_SIN_TEXTO[mensaje.type]) {
     await responder(telefono, mensajeId, mensajeSinTexto(TIPOS_SIN_TEXTO[mensaje.type]));
     bitacora(
@@ -921,8 +580,6 @@ export const ingestarWhatsapp = async (mensaje, contacto) => {
   const faltantes = camposFaltantes(datos);
   const recibidos = CAMPOS_OBLIGATORIOS.filter((campo) => !faltantes.includes(campo));
 
-  // 1) El cliente pregunta por un caso que ya registró. Solo tiene sentido si no
-  // tiene una conversación a medias: si le faltan datos, primero hay que crearlos.
   if (faltantes.length && !conversacion && esConsultaEstado(contenido)) {
     const [ultimo] = await ultimosTicketsPorContacto(recortar(telefono, LIMITES.empresa), {
       dias: diasConsultaTicket()
@@ -946,9 +603,6 @@ export const ingestarWhatsapp = async (mensaje, contacto) => {
     return { creado: false, consulta_estado: true, ticket: ultimo || null, mensaje: respuesta };
   }
 
-  // 2) Límite de intentos: el ticket se crea aunque falten datos. Perder a un
-  // cliente con una urgencia por no escribir el formato exacto es peor que un
-  // ticket con valores por defecto, que el técnico completa al tomar el caso.
   const intentos = Number(conversacion?.intentos || 0);
   const forzarTicket = faltantes.length > 0 && intentos >= intentosMaximos();
 
@@ -962,8 +616,6 @@ export const ingestarWhatsapp = async (mensaje, contacto) => {
 
     const respuesta = await responder(telefono, mensajeId, cuerpo);
 
-    // Reenvío de Meta: `responder` ya registró la bitácora correspondiente y
-    // el intento no avanzó, así que no repetimos el aviso como si hubiese salido.
     if (respuesta.duplicado) {
       return { creado: false, esperando_datos: true, faltantes, mensaje: respuesta };
     }

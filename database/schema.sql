@@ -195,11 +195,11 @@ CREATE TABLE IF NOT EXISTS claves (
   tipo ENUM('correo', 'pc_anydesk') NOT NULL,
   nombre VARCHAR(100) DEFAULT NULL,
   usuario VARCHAR(100) DEFAULT NULL,
-  password VARCHAR(30) DEFAULT NULL,
+  password TEXT DEFAULT NULL,
   pc VARCHAR(100) DEFAULT NULL,
-  pc_password VARCHAR(30) DEFAULT NULL,
+  pc_password TEXT DEFAULT NULL,
   anydesk VARCHAR(100) DEFAULT NULL,
-  anydesk_password VARCHAR(30) DEFAULT NULL,
+  anydesk_password TEXT DEFAULT NULL,
   estado ENUM('activo', 'inactivo') DEFAULT 'activo',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -249,6 +249,44 @@ CREATE TABLE IF NOT EXISTS whatsapp_mensajes (
 
   PRIMARY KEY (mensaje_origen),
   KEY idx_whatsapp_mensajes_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Idempotencia tecnica de webhooks: cada evento entregado por Meta o Resend se
+-- registra una sola vez. `processing` se puede reclamar tras 10 minutos.
+CREATE TABLE IF NOT EXISTS incoming_events (
+  id BIGINT AUTO_INCREMENT,
+  origen VARCHAR(50) NOT NULL,
+  evento_externo_id VARCHAR(191) NOT NULL,
+  estado ENUM('pending', 'processing', 'processed', 'failed') NOT NULL DEFAULT 'pending',
+  payload JSON DEFAULT NULL,
+  intentos INT NOT NULL DEFAULT 0,
+  error TEXT DEFAULT NULL,
+  creado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  actualizado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  procesado_en TIMESTAMP NULL DEFAULT NULL,
+
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_incoming_evento (origen, evento_externo_id),
+  KEY idx_incoming_estado_creado (estado, creado_en),
+  KEY idx_incoming_estado_actualizado (estado, actualizado_en)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Idempotencia de escritura con header `Idempotency-Key`. La clave se combina
+-- con el endpoint y el usuario para que no colisione entre rutas.
+CREATE TABLE IF NOT EXISTS idempotency_keys (
+  id BIGINT AUTO_INCREMENT,
+  clave VARCHAR(191) NOT NULL,
+  endpoint VARCHAR(191) NOT NULL,
+  user_id INT NOT NULL DEFAULT 0,
+  estado ENUM('processing', 'completed') NOT NULL DEFAULT 'processing',
+  status_code INT DEFAULT NULL,
+  respuesta MEDIUMTEXT DEFAULT NULL,
+  creado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  actualizado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_idempotency (clave, endpoint, user_id),
+  KEY idx_idempotency_actualizado (actualizado_en)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO categorias (nombre, estado) VALUES

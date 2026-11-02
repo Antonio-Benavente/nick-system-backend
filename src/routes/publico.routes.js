@@ -6,6 +6,7 @@ import {
 } from '../controllers/ticketsController.js';
 import { asyncHandler } from '../middlewares/async.middleware.js';
 import { limiteExcedido } from '../middlewares/limite.middleware.js';
+import { idempotencia } from '../middlewares/idempotencia.middleware.js';
 
 const router = Router();
 
@@ -30,6 +31,7 @@ router.get('/tickets/:uuid', limitador, asyncHandler(seguimientoPublico));
 router.patch(
   '/tickets/:uuid/conformidad',
   limitadorEscritura,
+  idempotencia,
   asyncHandler(registrarConformidadPublico)
 );
 

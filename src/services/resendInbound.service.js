@@ -1,13 +1,15 @@
+import { config } from '../config/env.js';
+
 const API_RECIBIDOS = 'https://api.resend.com/emails/receiving';
 
 export const obtenerCorreoRecibido = async (emailId) => {
-  if (!process.env.RESEND_API_KEY) {
+  if (!config.RESEND_API_KEY) {
     throw new Error('RESEND_API_KEY no configurada');
   }
 
   const respuesta = await fetch(`${API_RECIBIDOS}/${encodeURIComponent(emailId)}`, {
     headers: {
-      Authorization: `Bearer ${process.env.RESEND_API_KEY}`
+      Authorization: `Bearer ${config.RESEND_API_KEY}`
     }
   });
 

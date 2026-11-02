@@ -10,6 +10,7 @@ import {
 import authMiddleware from '../middlewares/auth.middleware.js';
 import roleMiddleware from '../middlewares/role.middleware.js';
 import { asyncHandler } from '../middlewares/async.middleware.js';
+import { idempotencia } from '../middlewares/idempotencia.middleware.js';
 
 const router = Router();
 
@@ -20,16 +21,18 @@ router.get('/reporte/:reporte_uuid', asyncHandler(getEvidencias));
 router.post(
   '/reporte/:reporte_uuid',
   roleMiddleware('tecnico', 'admin'),
+  idempotencia,
   asyncHandler(addEvidencia)
 );
 
 router.post(
   '/reporte/:reporte_uuid/batch',
   roleMiddleware('tecnico', 'admin'),
+  idempotencia,
   asyncHandler(addEvidenciasBatch)
 );
 
-router.put('/:uuid', roleMiddleware('tecnico', 'admin'), asyncHandler(updateEvidencia));
+router.put('/:uuid', roleMiddleware('tecnico', 'admin'), idempotencia, asyncHandler(updateEvidencia));
 
 router.delete('/:uuid', roleMiddleware('tecnico', 'admin'), asyncHandler(deleteEvidencia));
 
