@@ -37,7 +37,7 @@ const crearStreamLegible = () =>
     sync: true,
     colorize: false,
     singleLine: true,
-    translateTime: 'SYS:standard',
+    translateTime: 'SYS:dd/mm/yyyy HH:MM:ss',
     ignore: 'pid,hostname,servicio,entorno,requestId'
   });
 

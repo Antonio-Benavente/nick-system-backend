@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { contextoPeticion, logger } from '../config/logs.js';
 
 const ID_VALIDO = /^[A-Za-z0-9._:-]{8,128}$/;
-const RUTAS_SILENCIOSAS = new Set(['/health', '/ready']);
+const RUTAS_SILENCIOSAS = new Set(['/health', '/ready', '/']);
 
 const rutaDe = (req) => {
   if (req.route?.path) return `${req.baseUrl || ''}${req.route.path}`;
