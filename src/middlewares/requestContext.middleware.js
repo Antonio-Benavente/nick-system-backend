@@ -29,6 +29,7 @@ export default function requestContext(req, res, next) {
       contexto.route = rutaDe(req);
       contexto.userId = req.user?.id || null;
 
+      if (req.method === 'OPTIONS') return;
       if (RUTAS_SILENCIOSAS.has(contexto.route)) return;
 
       const duracionMs = Number(process.hrtime.bigint() - contexto.inicio) / 1e6;

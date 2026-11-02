@@ -1,4 +1,5 @@
 import pino from 'pino';
+import pretty from 'pino-pretty';
 import { format } from 'node:util';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { config } from './env.js';
@@ -18,25 +19,61 @@ const REDACTAR = {
   censor: '[REDACTADO]'
 };
 
-export const logger = pino({
-  level: config.LOG_LEVEL,
-  base: {
-    servicio: 'nick-system-backend',
-    entorno: config.NODE_ENV
-  },
-  timestamp: pino.stdTimeFunctions.isoTime,
-  redact: REDACTAR,
-  mixin() {
-    const contexto = contextoPeticion.getStore();
-    if (!contexto) return {};
-
-    return {
-      requestId: contexto.requestId,
-      ...(contexto.userId ? { userId: contexto.userId } : {}),
-      ...(contexto.route ? { route: contexto.route } : {})
-    };
-  }
+const formatoHoraLima = new Intl.DateTimeFormat('es-PE', {
+  timeZone: 'America/Lima',
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false
 });
+
+const crearStreamLegible = () =>
+  pretty({
+    colorize: false,
+    singleLine: true,
+    ignore: 'pid,hostname,servicio,entorno,requestId,http,route,userId,consola,msg',
+    customPrettifiers: {
+      time: (marca) => formatoHoraLima.format(new Date(marca))
+    },
+    messageFormat: (log) => {
+      const usuario = log.userId ? ` [user ${log.userId}]` : '';
+
+      if (log.http) {
+        const { method, status, ms } = log.http;
+        return `${method} ${log.route ?? log.http.route} ${status} ${ms}ms${usuario}`;
+      }
+
+      return `${log.msg ?? ''}${usuario}`;
+    }
+  });
+
+const usarFormatoLegible = process.env.LOG_PRETTY === 'true';
+
+export const logger = pino(
+  {
+    level: config.LOG_LEVEL,
+    base: {
+      servicio: 'nick-system-backend',
+      entorno: config.NODE_ENV
+    },
+    timestamp: pino.stdTimeFunctions.isoTime,
+    redact: REDACTAR,
+    mixin() {
+      const contexto = contextoPeticion.getStore();
+      if (!contexto) return {};
+
+      return {
+        requestId: contexto.requestId,
+        ...(contexto.userId ? { userId: contexto.userId } : {}),
+        ...(contexto.route ? { route: contexto.route } : {})
+      };
+    }
+  },
+  usarFormatoLegible ? crearStreamLegible() : undefined
+);
 
 const NIVEL_POR_CONSOLA = {
   log: 'info',
