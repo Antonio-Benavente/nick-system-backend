@@ -1,11 +1,24 @@
+import { randomUUID } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import pool from '../config/db.js';
 import { config } from '../config/env.js';
-import { validatePassword } from '../validators/validators.js';
-import { validarConZod, esquemaLogin } from '../validators/schemas.js';
+import {
+  validatePassword,
+  validarDispositivoApp
+} from '../validators/validators.js';
+import {
+  validarConZod,
+  esquemaLogin,
+  esquemaLoginApp
+} from '../validators/schemas.js';
 import { abortar } from '../middlewares/error.middleware.js';
 import { bitacora, enmascararEmail } from '../services/bitacora.service.js';
+import {
+  crearDispositivo,
+  revocarDispositivos,
+  segundosDeExpiracion
+} from '../services/dispositivos.service.js';
 
 const HASH_IGUALADO =
   '$2a$10$SQ382ScImEnz2yL4zzZkv.NmveD76AEMu975vZwIhvdlCGwLiZ.b.';
@@ -19,17 +32,20 @@ const RESPUESTA_SESION = (user) => ({
   empresa: user.empresa ?? null,
 });
 
-const firmarToken = (user, sesionVersion) =>
+const firmarToken = (user, sesionVersion, { sid = null, expiracion = null } = {}) =>
   jwt.sign(
     {
       id: user.id,
       uuid: user.uuid,
       role: user.role,
-      sv: sesionVersion
+      ...(sid ? { sid } : { sv: sesionVersion })
     },
     config.JWT_SECRET,
-    { expiresIn: config.JWT_EXPIRES_IN }
+    { expiresIn: expiracion || config.JWT_EXPIRES_IN }
   );
+
+const esClienteAppTecnicos = (req) =>
+  String(req.get('x-cliente') || '').trim().toLowerCase() === 'app-tecnicos';
 
 const estaActivo = async (user) => {
   if (user.role === 'tecnico') {
@@ -52,7 +68,9 @@ const estaActivo = async (user) => {
 };
 
 export const login = async (req, res) => {
-  const datos = validarConZod(esquemaLogin, req.body, {
+  const esApp = esClienteAppTecnicos(req);
+
+  const datos = validarConZod(esApp ? esquemaLoginApp : esquemaLogin, req.body, {
     modo: config.FF_ZOD_VALIDATION,
     contexto: 'POST /auth/login'
   });
@@ -82,6 +100,42 @@ export const login = async (req, res) => {
     throw abortar(401, 'Credenciales inválidas');
   }
 
+  if (esApp && user.role !== 'tecnico') {
+    bitacora(
+      'auth',
+      `Login de la app rechazado (rol ${user.role}) para ${enmascararEmail(email)}`
+    );
+    throw abortar(403, 'Esta aplicación es solo para técnicos');
+  }
+
+  if (esApp) {
+    const dispositivo = validarDispositivoApp(datos.dispositivo);
+    const sid = randomUUID();
+
+    await crearDispositivo({
+      sid,
+      userId: user.id,
+      ...dispositivo,
+      segundosVigencia: segundosDeExpiracion(config.JWT_EXPIRES_IN_APP_TECNICOS)
+    });
+
+    const token = firmarToken(user, user.sesion_version, {
+      sid,
+      expiracion: config.JWT_EXPIRES_IN_APP_TECNICOS
+    });
+
+    bitacora(
+      'auth',
+      `Inicio de sesión en la app de ${enmascararEmail(user.email)} (dispositivo ${sid})`
+    );
+
+    return res.json({
+      token,
+      user: RESPUESTA_SESION(user),
+      dispositivo: { sid }
+    });
+  }
+
   const token = firmarToken(user, user.sesion_version);
 
   bitacora('auth', `Inicio de sesión correcto de ${enmascararEmail(user.email)} (rol ${user.role})`);
@@ -106,6 +160,17 @@ export const miPerfil = async (req, res) => {
 };
 
 export const logout = async (req, res) => {
+  if (req.user.sid) {
+    await revocarDispositivos(req.user.id, {
+      sid: req.user.sid,
+      motivo: 'logout_app'
+    });
+
+    bitacora('auth', `Cierre de sesión en la app de ${enmascararEmail(req.user.email)}`);
+
+    return res.json({ message: 'Sesión cerrada correctamente' });
+  }
+
   await pool.query('UPDATE users SET sesion_version = sesion_version + 1 WHERE id = ?', [
     req.user.id
   ]);
@@ -155,6 +220,8 @@ export const cambiarPassword = async (req, res) => {
     'UPDATE users SET password = ?, sesion_version = sesion_version + 1 WHERE id = ?',
     [hash, req.user.id]
   );
+
+  await revocarDispositivos(req.user.id, { motivo: 'cambio_password' });
 
   bitacora('auth', `Cambio de contraseña de ${enmascararEmail(req.user.email)}`);
 

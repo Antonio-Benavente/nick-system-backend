@@ -12,6 +12,7 @@ import {
 } from "./services/whatsappConversacion.service.js";
 import { limpiarEventosAntiguos } from "./services/incomingEvents.service.js";
 import { limpiarIdempotenciaAntigua } from "./middlewares/idempotencia.middleware.js";
+import { purgarDispositivosRevocados } from "./services/dispositivos.service.js";
 import { iniciarWarmup } from "./services/warmup.service.js";
 
 const INTERVALO_LIMPIEZA_MINUTOS = 15;
@@ -80,6 +81,15 @@ const iniciarLimpieza = () => {
       }
     } catch (error) {
       logger.warn({ error: error.message }, 'Fallo purgando claves de idempotencia');
+    }
+
+    try {
+      const dispositivos = await purgarDispositivosRevocados();
+      if (dispositivos > 0) {
+        logger.info({ dispositivos }, 'Dispositivos revocados purgados');
+      }
+    } catch (error) {
+      logger.warn({ error: error.message }, 'Fallo purgando dispositivos revocados');
     }
   }, { timezone: config.ZONA_HORARIA });
 

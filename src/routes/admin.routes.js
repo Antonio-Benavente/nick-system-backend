@@ -24,6 +24,11 @@ import {
   restaurarTecnico
 } from '../controllers/tecnicos.controller.js';
 import {
+  cerrarSesiones,
+  listarDispositivos,
+  revocarDispositivo
+} from '../controllers/dispositivos.controller.js';
+import {
   asignarAdmin,
   cancelarAdmin,
   crearAdmin,
@@ -86,6 +91,12 @@ router.put('/tecnicos/:uuid', asyncHandler(updateTecnico));
 router.delete('/tecnicos/:uuid', asyncHandler(deleteTecnico));
 
 router.patch('/tecnicos/:uuid/restaurar', asyncHandler(restaurarTecnico));
+
+router.get('/tecnicos/:uuid/dispositivos', asyncHandler(listarDispositivos));
+
+router.delete('/tecnicos/:uuid/dispositivos/:id', asyncHandler(revocarDispositivo));
+
+router.post('/tecnicos/:uuid/cerrar-sesiones', asyncHandler(cerrarSesiones));
 
 router.get('/clientes', asyncHandler(getClientes));
 

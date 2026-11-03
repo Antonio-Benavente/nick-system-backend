@@ -7,6 +7,7 @@ import {
 } from '../validators/validators.js';
 import { abortar } from '../middlewares/error.middleware.js';
 import { conTransaccion } from '../services/transaccion.service.js';
+import { revocarDispositivos } from '../services/dispositivos.service.js';
 import { leerPaginacion, cabeceraPaginacion, contar } from '../services/paginacion.service.js';
 
 const CAMPOS_CLIENTE = ['nombre', 'empresa', 'email', 'telefono', 'direccion'];
@@ -217,6 +218,11 @@ export const updateCliente = async (req, res) => {
         'UPDATE users SET password = ?, sesion_version = sesion_version + 1 WHERE id = ?',
         [hashedPassword, userId]
       );
+
+      await revocarDispositivos(userId, {
+        motivo: 'admin_password',
+        conexion: connection
+      });
     }
   });
 
@@ -242,6 +248,11 @@ export const deleteCliente = async (req, res) => {
     );
 
     if (cliente[0].user_id) {
+      await revocarDispositivos(cliente[0].user_id, {
+        motivo: 'inactivacion',
+        conexion: connection
+      });
+
       await connection.query(
         'UPDATE users SET sesion_version = sesion_version + 1 WHERE id = ?',
         [cliente[0].user_id]
@@ -253,14 +264,23 @@ export const deleteCliente = async (req, res) => {
 };
 
 export const restaurarCliente = async (req, res) => {
-  const [result] = await pool.query(
-    `UPDATE clientes SET estado = 'activo' WHERE uuid = ? AND estado = 'inactivo'`,
+  const [cliente] = await pool.query(
+    'SELECT user_id, estado FROM clientes WHERE uuid = ?',
     [req.params.uuid]
   );
 
-  if (result.affectedRows === 0) {
+  if (!cliente.length || cliente[0].estado === 'activo') {
     throw abortar(404, 'Cliente no encontrado o ya está activo');
   }
+
+  if (cliente[0].user_id) {
+    await revocarDispositivos(cliente[0].user_id, { motivo: 'restauracion' });
+  }
+
+  await pool.query(
+    `UPDATE clientes SET estado = 'activo' WHERE uuid = ? AND estado = 'inactivo'`,
+    [req.params.uuid]
+  );
 
   res.json({ message: 'Cliente restaurado correctamente' });
 };

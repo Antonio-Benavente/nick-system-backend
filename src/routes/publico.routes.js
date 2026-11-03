@@ -4,6 +4,7 @@ import {
   registrarConformidadPublico,
   seguimientoPublico
 } from '../controllers/ticketsController.js';
+import { infoAppTecnicos } from '../controllers/publico.controller.js';
 import { asyncHandler } from '../middlewares/async.middleware.js';
 import { limiteExcedido } from '../middlewares/limite.middleware.js';
 import { idempotencia } from '../middlewares/idempotencia.middleware.js';
@@ -18,6 +19,14 @@ const limitador = rateLimit({
   handler: limiteExcedido('Demasiadas consultas. Intenta de nuevo en unos minutos.')
 });
 
+const limitadorApp = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 120,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  handler: limiteExcedido('Demasiadas consultas. Intenta de nuevo en unos minutos.')
+});
+
 const limitadorEscritura = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 10,
@@ -25,6 +34,8 @@ const limitadorEscritura = rateLimit({
   legacyHeaders: false,
   handler: limiteExcedido('Demasiados intentos. Intenta de nuevo en unos minutos.')
 });
+
+router.get('/app-tecnicos', limitadorApp, asyncHandler(infoAppTecnicos));
 
 router.get('/tickets/:uuid', limitador, asyncHandler(seguimientoPublico));
 

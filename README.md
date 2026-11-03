@@ -4,6 +4,24 @@ API REST Express 4 + MySQL (`mysql2`) en ESM. Es la fuente de verdad de los endp
 
 Despliegue en Render (`render.yaml` + `Dockerfile`, Node 20 Alpine).
 
+## Desarrollo y pruebas
+
+```bash
+pnpm install
+pnpm dev      # nodemon
+pnpm start    # node
+pnpm test     # node --test (sin dependencias extra)
+```
+
+Los tests usan `node:test` y son idempotentes: crean sus propios usuarios, técnicos, tickets y dispositivos, y los borran al final. Los que tocan la base (revocación por dispositivo, purga, detalle de ticket ajeno, login de la app) se **omiten** si MySQL o las tablas no están disponibles, así que la suite también corre en una máquina sin base.
+
+No hay CI: se ejecutan a mano. Para que corran contra la base local con las tablas nuevas:
+
+```powershell
+$env:DATABASE_URL='mysql://root@localhost:3307/nicksystemlocal'
+pnpm test
+```
+
 
 ## Contenido
 
@@ -69,6 +87,7 @@ Despliegue en Render (`render.yaml` + `Dockerfile`, Node 20 Alpine).
 | `DATABASE_URL` | URI de pool mysql2 (**obligatoria**) |
 | `JWT_SECRET` | Clave para firmar tokens (**obligatoria**) |
 | `JWT_EXPIRES_IN` | Expiración del token (`1d`, etc.) |
+| `JWT_EXPIRES_IN_APP_TECNICOS` | Expiración del token de la app Android: `365d`. Es solo un respaldo; el control real es la revocación por dispositivo |
 | `TICKET_CODIGO_SECRET` | Clave del HMAC con el que se genera el código público del ticket. Si se deja vacía cae a `JWT_SECRET`, así que no es obligatoria. En Render se genera sola |
 | `CLAVES_ENCRYPTION_KEY` | Clave AES-256-GCM para cifrar las contraseñas de la tabla `claves`. Acepta 32 bytes en base64, 64 hex o 32 caracteres UTF-8. **Obligatoria en producción**; en desarrollo, si falta, se guarda sin cifrar |
 | `RESEND_API_KEY` | API key de Resend (envío de emails) |
@@ -82,6 +101,10 @@ Despliegue en Render (`render.yaml` + `Dockerfile`, Node 20 Alpine).
 | `FF_INCOMING_EVENTS` | `off`, `observe` o `enforce`. Deduplicación técnica de webhooks (default `observe`) |
 | `FF_ZOD_VALIDATION` | `off`, `observe` o `enforce`. Zod valida y registra; en `enforce` rechaza (default `observe`) |
 | `FF_IDEMPOTENCY` | `off` o `enforce`. Activa el header `Idempotency-Key` (default `off`) |
+| `FF_PUSH` | `off` o `enforce`. Envío de notificaciones push de la app de técnicos (default `off`). Con `off` no se llama a Expo |
+| `EXPO_ACCESS_TOKEN` | Opcional. Token de acceso de Expo para el envío de push. Sin él Expo acepta el envío sin autenticación |
+| `APP_TECNICOS_VERSION_MINIMA` | Versión mínima aceptada por la app Android, formato `1.2.3` (default `1.0.0`) |
+| `APP_TECNICOS_URL_DESCARGA` | URL fija del APK (`/descargas/nick-system-tecnicos.apk`). Si está vacía, `/publico/app-tecnicos` responde `url_descarga: null` |
 | `EVIDENCIAS_MAX_MB` | Tamaño máximo por archivo de evidencia, en MB (default 10) |
 | `EVIDENCIAS_HOSTS` | Hosts permitidos para las URLs de evidencias, separados por comas. Vacío = `res.cloudinary.com` |
 | `WHATSAPP_TOKEN` | Token de acceso de Meta Cloud API |
@@ -200,6 +223,7 @@ no pasan por el middleware. Los guards de rol no cambian.
 - `POST /notificaciones/reporte/:uuid/enviar`: 20 requests / 15 min.
 - `GET /publico/tickets/:uuid`: 60 requests / 15 min (limitador propio).
 - `PATCH /publico/tickets/:uuid/conformidad`: 10 requests / 15 min (limitador propio, más estricto porque escribe).
+- `GET /publico/app-tecnicos`: 120 requests / 15 min (limitador propio).
 
 ### Seguridad
 
@@ -227,7 +251,7 @@ no pasan por el middleware. Los guards de rol no cambian.
 | `incoming_events` | Webhooks | Procesar dos veces el mismo evento entregado |
 | `idempotency_keys` + `Idempotency-Key` | Endpoints mutantes | Repetir una escritura por reintento del cliente |
 
-`FF_INCOMING_EVENTS=observe` registra el evento y deja pasar; `enforce` omite los ya procesados. `FF_IDEMPOTENCY=enforce` activa la clave en crear ticket, conformidad pública, evidencias y transiciones. Sin tabla (despliegue previo a la migración) ambos mecanismos degradan y dejan pasar la petición.
+`FF_INCOMING_EVENTS=observe` registra el evento y deja pasar; `enforce` omite los ya procesados. `FF_IDEMPOTENCY=enforce` activa la clave en crear ticket, conformidad pública, evidencias, transiciones y alta de gastos. Sin tabla (despliegue previo a la migración) ambos mecanismos degradan y dejan pasar la petición.
 
 ### Cifrado de credenciales (`claves`)
 
@@ -245,7 +269,7 @@ La API no confía en el frontend: además de validar URL/tipo/orden, hace un `HE
 
 
 
-`server.js` corre cada 15 minutos la limpieza de `whatsapp_conversaciones`, `whatsapp_mensajes`, `incoming_events` (procesados/fallidos de más de 30 días) e `idempotency_keys` (más de 24 h) para que esas tablas no crezcan sin control. Las tareas se cancelan en el shutdown.
+`server.js` corre cada 15 minutos la limpieza de `whatsapp_conversaciones`, `whatsapp_mensajes`, `incoming_events` (procesados/fallidos de más de 30 días), `idempotency_keys` (más de 24 h) y `dispositivos` revocados (solo si `token_vivo_hasta <= NOW()`, copiando antes a `dispositivos_auditoria`) para que esas tablas no crezcan sin control. Las tareas se cancelan en el shutdown.
 
 ### Rutas montadas (sin prefijo `/api`)
 
@@ -263,16 +287,30 @@ La API no confía en el frontend: además de validar URL/tipo/orden, hace un `HE
 |---|---|---|---|
 | POST | `/auth/login` | Público | Login, devuelve `{ token, user }` |
 | GET | `/auth/me` | Autenticado | Usuario de la sesión actual |
-| POST | `/auth/logout` | Autenticado | Revoca **todos** los tokens del usuario |
-| PATCH | `/auth/password` | Autenticado | Cambia la contraseña propia (`{ password_actual, password_nuevo }`) y revoca los tokens |
+| POST | `/auth/logout` | Autenticado | Revoca **todos** los tokens web del usuario, o **solo el dispositivo** si el token es de la app |
+| PATCH | `/auth/password` | Autenticado | Cambia la contraseña propia (`{ password_actual, password_nuevo }`), revoca los tokens web y todos los dispositivos |
 
 ### Sesiones revocables
 
-El token lleva `sv` (`users.sesion_version`). Cada petición autenticada compara ese valor con el de la base:
+El token web lleva `sv` (`users.sesion_version`). Cada petición autenticada compara ese valor con el de la base:
 
-- `POST /auth/logout`, `PATCH /auth/password`, el cambio de contraseña de un cliente/técnico y su inactivación incrementan `sesion_version` → todos los tokens previos dejan de servir.
+- `POST /auth/logout` (token web), `PATCH /auth/password`, el cambio de contraseña de un cliente/técnico y su inactivación incrementan `sesion_version` → todos los tokens previos dejan de servir.
 - Si el técnico o el cliente está `inactivo`, el middleware responde **401** aunque el token no haya expirado.
 - `authMiddleware` hace una consulta indexada por request (`users.id` + `users.uuid`); a cambio, un cambio de rol o un bloqueo surte efecto de inmediato.
+
+#### App de técnicos: sesión por dispositivo
+
+El login de la app envía `X-Cliente: app-tecnicos` y, opcionalmente, `{ dispositivo: { nombre, plataforma, app_version } }`. La cabecera **no concede permisos**: solo selecciona el flujo con dispositivo. El rol se sigue validando y un admin o cliente recibe **403** sin token.
+
+- Cada login crea una fila en `dispositivos` con un `sid` (UUID) y firma el JWT con `{ id, uuid, role, sid }` y `JWT_EXPIRES_IN_APP_TECNICOS`.
+- Un token con `sid` es válido solo si su fila existe, pertenece al mismo usuario y tiene `revocado_at IS NULL`. Esa comprobación va en el mismo `LEFT JOIN` del `authMiddleware`.
+- Los tokens con `sid` **no** miran `sesion_version`: cerrar sesión en el portal web no debe tumbar el teléfono.
+- `POST /auth/logout` con un token de app revoca **solo ese dispositivo** y borra su token de push. El logout web mantiene el comportamiento anterior.
+- Cambio de contraseña (propio o por admin), inactivación, restauración, borrado, «cerrar sesiones» y revocación desde el admin llaman a `revocarDispositivos(userId, { sid?, motivo })`.
+- `last_seen_at` se actualiza como máximo cada 5 minutos, sin bloquear la respuesta.
+- La purga del cron de 15 min elimina solo filas revocadas con `token_vivo_hasta <= NOW()` y antes copia el resumen a `dispositivos_auditoria`. Las revocadas con un JWT aún vigente se conservan hasta que expire.
+
+No existe hoy un endpoint de cambio de rol. Si se añade, debe llamar a `revocarDispositivos` como el resto de acciones de la tabla anterior.
 
 ### Admin (requiere rol `admin`)
 
@@ -293,6 +331,9 @@ El token lleva `sv` (`users.sesion_version`). Cada petición autenticada compara
 | PUT | `/admin/tecnicos/:uuid` | Actualizar técnico (update parcial) |
 | DELETE | `/admin/tecnicos/:uuid` | Inactivar técnico |
 | PATCH | `/admin/tecnicos/:uuid/restaurar` | Restaurar técnico |
+| GET | `/admin/tecnicos/:uuid/dispositivos` | Dispositivos de la app (nombre, versión, última actividad, push, revocado) |
+| DELETE | `/admin/tecnicos/:uuid/dispositivos/:id` | Revocar un dispositivo concreto |
+| POST | `/admin/tecnicos/:uuid/cerrar-sesiones` | Revocar todos los dispositivos del técnico |
 | GET | `/admin/clientes` | Listar clientes |
 | GET | `/admin/clientes/:uuid` | Detalle de cliente |
 | POST | `/admin/clientes` | Crear cliente |
@@ -391,16 +432,51 @@ Las fechas de filtro son días de **America/Lima**. Como la base guarda UTC, el 
 | Método | Ruta | Acceso | Descripción |
 |---|---|---|---|
 | GET | `/tecnicos/mis-tickets` | Tecnico | Tickets asignados |
+| GET | `/tecnicos/tickets/:uuid` | Tecnico | Detalle de un ticket propio (404 si es de otro técnico) |
 | PATCH | `/tecnicos/tickets/:uuid/iniciar-servicio` | Tecnico | Marcar que el servicio ya empezó (`fecha_inicio_servicio`) |
 | PATCH | `/tecnicos/tickets/:uuid/atender` | Tecnico | Marcar atendido (`{ nota }`) |
 | GET | `/tecnicos/tickets/:uuid/gastos` | Tecnico | Listar gastos del ticket |
 | POST | `/tecnicos/tickets/:uuid/gastos` | Tecnico | Registrar gasto (`{ concepto, detalle?, monto }`) |
 | PUT | `/tecnicos/tickets/:uuid/gastos/:gasto_uuid` | Tecnico | Editar gasto |
 | DELETE | `/tecnicos/tickets/:uuid/gastos/:gasto_uuid` | Tecnico | Borrar gasto |
+| POST | `/tecnicos/dispositivos/push` | Tecnico (token de app) | Registrar el `expo_push_token` del dispositivo actual (idempotente) |
+| DELETE | `/tecnicos/dispositivos/push` | Tecnico (token de app) | Quitar el token de push del dispositivo actual |
 
 Los gastos viven en `ticket_gastos` (`concepto`, `detalle`, `monto` en soles). **El rol `cliente` no puede verlos**: el backend los bloquea a propósito porque son coste interno. Solo el técnico asignado al ticket escribe; el admin solo lee.
 
 **Se congelan al cerrar el ticket**: si `estado` es `atendido` o `cancelado`, agregar, editar y borrar devuelven **409** con *"El ticket está cerrado: los gastos ya no se pueden agregar, editar ni borrar"*. Se bloquean las tres operaciones y no solo el alta, para que el total que vio el cliente no pueda cambiar después de terminado el servicio. En la interfaz el bloque queda en solo lectura y muestra ese mismo aviso.
+
+### Push de la app de técnicos
+
+`src/services/push.service.js` habla con `https://exp.host/--/api/v2/push/send` usando `fetch`, en lotes de 100. `FF_PUSH=off` (default) no envía nada; `FF_PUSH=enforce` activa el envío. Si `EXPO_ACCESS_TOKEN` está definido se envía como `Authorization: Bearer`.
+
+Al asignar o reasignar un ticket (`PATCH /admin/tickets/:uuid/asignar`) se avisa al técnico nuevo y, si cambió, al anterior. Los dos envíos son independientes y no bloquean la respuesta; un fallo de Expo solo queda en la bitácora y nunca rompe la asignación. Si se asigna al mismo técnico, no se envía nada.
+
+```json
+{
+  "title": "Nuevo ticket asignado",
+  "body": "Código TK-AJ7ZQVQ",
+  "data": { "tipo": "ticket_asignado", "ticket_uuid": "<uuid>" }
+}
+```
+
+El cuerpo lleva **solo el código**: ni empresa, ni nombre del cliente, ni descripción, porque se ve en la pantalla bloqueada. El aviso de reasignación usa `tipo: "ticket_reasignado"` y la app abre la lista de tickets, no el detalle.
+
+Cuando Expo responde `DeviceNotRegistered`, se pone `expo_push_token = NULL` en esa fila; la sesión sigue válida. La verificación de receipts queda como segunda iteración.
+
+Prueba manual contra un token real:
+
+```bash
+node scripts/probar-push.mjs "ExponentPushToken[...]" "Prueba" "Mensaje"
+```
+
+### Enlace de descarga de la app
+
+```http
+GET /publico/app-tecnicos
+```
+
+Responde `{ version_minima, url_descarga }` leyendo `APP_TECNICOS_VERSION_MINIMA` y `APP_TECNICOS_URL_DESCARGA`. Es público, con limitador propio de 120/15 min y `Cache-Control: no-store`. Lo consumen el portal web y la app (pantalla de actualización), así que el enlace se cambia en un solo sitio.
 
 ### Estados del ticket
 
@@ -905,6 +981,8 @@ El túnel solo reenvía al puerto indicado: `4000` = API/webhooks, `5173` = fron
 Tablas:
 
 - `users` — usuarios del sistema (admin, técnicos, clientes). `sesion_version` invalida los JWT emitidos antes de un cambio.
+- `dispositivos` — instalaciones de la app Android (`sid` dentro del JWT, nombre, versión, `expo_push_token` UNIQUE, `token_vivo_hasta`, `revocado_at`). La purga espera a que el JWT expire.
+- `dispositivos_auditoria` — resumen de los dispositivos que la purga elimina (`sid`, usuario, fechas, motivo).
 - `tecnicos` — información de técnicos.
 - `clientes` — información de clientes.
 - `categorias` — categorías de servicios.

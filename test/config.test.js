@@ -65,6 +65,9 @@ test('valida los feature flags y toma los valores por defecto', () => {
   assert.equal(config.FF_INCOMING_EVENTS, 'enforce');
   assert.equal(config.FF_ZOD_VALIDATION, 'off');
   assert.equal(config.FF_IDEMPOTENCY, 'off');
+  assert.equal(config.FF_PUSH, 'off');
+  assert.equal(config.JWT_EXPIRES_IN_APP_TECNICOS, '365d');
+  assert.equal(config.APP_TECNICOS_VERSION_MINIMA, '1.0.0');
 });
 
 test('rechaza un feature flag desconocido', () => {

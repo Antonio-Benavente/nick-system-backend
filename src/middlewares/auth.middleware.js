@@ -15,9 +15,12 @@ const SELECT_USUARIO = `
     u.sesion_version,
     te.id AS tecnico_id,
     te.uuid AS tecnico_uuid,
-    COALESCE(te.estado, 'inactivo') AS estado
+    COALESCE(te.estado, 'inactivo') AS estado,
+    d.id AS dispositivo_id,
+    d.revocado_at AS dispositivo_revocado_at
   FROM users u
   LEFT JOIN tecnicos te ON te.user_id = u.id AND u.role = 'tecnico'
+  LEFT JOIN dispositivos d ON d.sid = ? AND d.user_id = u.id
   WHERE u.id = ? AND u.uuid = ?
 `;
 
@@ -79,8 +82,16 @@ export default async function authMiddleware(req, res, next) {
   }
 
   try {
+    if (payload.sid && payload.role !== 'tecnico') {
+      console.warn(`Token con sid de rol no técnico en ${req.method} ${req.originalUrl}`);
+      return res.status(401).json({ message: 'Token inválido o expirado' });
+    }
+
     const consulta = SELECT_POR_ROL[payload.role] || SELECT_USUARIO_ADMIN;
-    const [rows] = await pool.query(consulta, [payload.id, payload.uuid]);
+    const parametros = payload.role === 'tecnico'
+      ? [payload.sid || '', payload.id, payload.uuid]
+      : [payload.id, payload.uuid];
+    const [rows] = await pool.query(consulta, parametros);
 
     if (rows.length === 0) {
       console.warn(`Token sin usuario en ${req.method} ${req.originalUrl} (id ${payload.id})`);
@@ -94,7 +105,14 @@ export default async function authMiddleware(req, res, next) {
       return res.status(401).json({ message: 'Token inválido o expirado' });
     }
 
-    if (Number(usuario.sesion_version) !== Number(payload.sv || 0)) {
+    if (payload.sid) {
+      if (!usuario.dispositivo_id || usuario.dispositivo_revocado_at) {
+        console.warn(`Dispositivo revocado en ${req.method} ${req.originalUrl} (id ${payload.id})`);
+        return res.status(401).json({
+          message: 'La sesión fue cerrada. Inicia sesión nuevamente.'
+        });
+      }
+    } else if (Number(usuario.sesion_version) !== Number(payload.sv || 0)) {
       console.warn(`Sesión cerrada (sesion_version) en ${req.method} ${req.originalUrl} (id ${payload.id})`);
       return res.status(401).json({
         message: 'La sesión fue cerrada. Inicia sesión nuevamente.',
@@ -117,7 +135,22 @@ export default async function authMiddleware(req, res, next) {
       name: usuario.name,
       email: usuario.email,
       role: usuario.role,
+      ...(payload.sid ? { sid: payload.sid } : {})
     };
+
+    if (payload.sid) {
+      pool
+        .query(
+          `UPDATE dispositivos
+           SET last_seen_at = NOW()
+           WHERE sid = ? AND user_id = ? AND revocado_at IS NULL
+             AND last_seen_at < DATE_SUB(NOW(), INTERVAL 5 MINUTE)`,
+          [payload.sid, usuario.id]
+        )
+        .catch((error) => {
+          console.warn(`No se pudo actualizar last_seen_at: ${error.message}`);
+        });
+    }
 
     if (usuario.role === 'tecnico') {
       req.user.tecnico = { id: usuario.tecnico_id, uuid: usuario.tecnico_uuid };

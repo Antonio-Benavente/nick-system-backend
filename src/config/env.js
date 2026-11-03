@@ -81,6 +81,18 @@ const esquema = z.object({
   FF_INCOMING_EVENTS: bandera('observe'),
   FF_ZOD_VALIDATION: bandera('observe'),
   FF_IDEMPOTENCY: z.enum(['off', 'enforce']).default('off'),
+  FF_PUSH: z.enum(['off', 'enforce']).default('off'),
+
+  EXPO_ACCESS_TOKEN: opcional(z.string()),
+  JWT_EXPIRES_IN_APP_TECNICOS: z
+    .string()
+    .regex(/^\d+\s*[smhd]?$/i, 'formato esperado 365d, 12h o segundos')
+    .default('365d'),
+  APP_TECNICOS_VERSION_MINIMA: z
+    .string()
+    .regex(/^\d+(?:\.\d+)*$/, 'formato esperado 1.2.3')
+    .default('1.0.0'),
+  APP_TECNICOS_URL_DESCARGA: opcional(z.string().url()),
 
   EVIDENCIAS_MAX_MB: entero(10),
   EVIDENCIAS_HOSTS: opcional(z.string())
@@ -179,6 +191,16 @@ export const validarEntorno = (entorno = process.env) => {
 
   if (config.TICKET_CODIGO_SECRET && config.TICKET_CODIGO_SECRET === config.JWT_SECRET) {
     avisos.push('TICKET_CODIGO_SECRET: es igual a JWT_SECRET; usa un valor independiente');
+  }
+
+  if (!config.APP_TECNICOS_URL_DESCARGA) {
+    avisos.push(
+      'APP_TECNICOS_URL_DESCARGA: vacía; /publico/app-tecnicos responderá con url_descarga null'
+    );
+  }
+
+  if (config.FF_PUSH === 'enforce' && !config.EXPO_ACCESS_TOKEN) {
+    avisos.push('EXPO_ACCESS_TOKEN: vacía; Expo acepta el envío sin autenticación (menos seguro)');
   }
 
   const origenes = String(config.ALLOWED_ORIGINS || '')

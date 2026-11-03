@@ -1,5 +1,5 @@
 -- NICK SYSTEM - SCHEMA MYSQL
--- Versión 3.1 | MySQL 8.0+ / MariaDB 10.6+
+-- Versión 3.2 | MySQL 8.0+ / MariaDB 10.6+
 -- Solo para instalaciones NUEVAS (para una base existente hay que escribir el ALTER a mano).
 --
 -- Al editar:
@@ -26,6 +26,49 @@ CREATE TABLE IF NOT EXISTS users (
   UNIQUE KEY uuid (uuid),
   UNIQUE KEY email (email),
   KEY idx_users_role (role)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Instalaciones de la app de técnicos. Une la sesión (sid dentro del JWT) y el
+-- token de push. No se borra al revocar: la purga espera a que el JWT expire.
+CREATE TABLE IF NOT EXISTS dispositivos (
+  id INT AUTO_INCREMENT,
+  sid CHAR(36) NOT NULL,
+  user_id INT NOT NULL,
+  nombre VARCHAR(100) DEFAULT NULL,
+  plataforma ENUM('android', 'ios') NOT NULL DEFAULT 'android',
+  app_version VARCHAR(20) DEFAULT NULL,
+  expo_push_token VARCHAR(255) DEFAULT NULL,
+  token_vivo_hasta TIMESTAMP NULL DEFAULT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  last_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  revocado_at TIMESTAMP NULL DEFAULT NULL,
+  motivo_revocacion VARCHAR(50) DEFAULT NULL,
+
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_dispositivos_sid (sid),
+  UNIQUE KEY uq_dispositivos_push (expo_push_token),
+  KEY idx_dispositivos_user (user_id),
+  KEY idx_dispositivos_purga (revocado_at, token_vivo_hasta),
+  CONSTRAINT fk_dispositivos_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Bitácora de los dispositivos que la purga elimina de `dispositivos`.
+CREATE TABLE IF NOT EXISTS dispositivos_auditoria (
+  id INT AUTO_INCREMENT,
+  sid CHAR(36) NOT NULL,
+  user_id INT NOT NULL,
+  nombre VARCHAR(100) DEFAULT NULL,
+  plataforma ENUM('android', 'ios') DEFAULT NULL,
+  app_version VARCHAR(20) DEFAULT NULL,
+  created_at TIMESTAMP NULL DEFAULT NULL,
+  last_seen_at TIMESTAMP NULL DEFAULT NULL,
+  revocado_at TIMESTAMP NULL DEFAULT NULL,
+  motivo_revocacion VARCHAR(50) DEFAULT NULL,
+  purgado_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+  PRIMARY KEY (id),
+  KEY idx_auditoria_user (user_id),
+  KEY idx_auditoria_sid (sid)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS tecnicos (

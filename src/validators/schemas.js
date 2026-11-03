@@ -8,6 +8,20 @@ export const esquemaLogin = z.object({
   password: z.string().min(1, 'La contraseña es requerida').max(72)
 });
 
+export const esquemaLoginApp = esquemaLogin.extend({
+  dispositivo: z
+    .object({
+      nombre: z.string().trim().max(100).optional(),
+      plataforma: z.enum(['android', 'ios']).optional(),
+      app_version: z.string().trim().max(20).optional()
+    })
+    .optional()
+});
+
+export const esquemaPushToken = z.object({
+  expo_push_token: z.string().trim().min(1).max(255)
+});
+
 export const esquemaNuevoTicket = z.object({
   empresa_solicitante: z.string().trim().min(2, 'La empresa es requerida').max(150),
   nombre_solicitante: z.string().trim().min(2, 'El nombre es requerido').max(100),

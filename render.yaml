@@ -27,6 +27,14 @@ services:
         sync: false
       - key: JWT_EXPIRES_IN
         value: 1d
+      - key: JWT_EXPIRES_IN_APP_TECNICOS
+        value: 365d
+      - key: EXPO_ACCESS_TOKEN
+        sync: false
+      - key: APP_TECNICOS_VERSION_MINIMA
+        value: 1.0.0
+      - key: APP_TECNICOS_URL_DESCARGA
+        sync: false
       - key: RESEND_API_KEY
         sync: false
       - key: EMAIL_FROM
@@ -48,6 +56,8 @@ services:
       - key: FF_ZOD_VALIDATION
         value: observe
       - key: FF_IDEMPOTENCY
+        value: "off"
+      - key: FF_PUSH
         value: "off"
       - key: EVIDENCIAS_MAX_MB
         value: 10

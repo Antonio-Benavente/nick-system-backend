@@ -9,9 +9,14 @@ import {
 } from '../controllers/tecnico.controller.js';
 import {
   atenderTecnico,
+  detalleTecnico,
   iniciarServicioTecnico,
   misTickets
 } from '../controllers/ticketsController.js';
+import {
+  eliminarPush,
+  registrarPush
+} from '../controllers/dispositivos.controller.js';
 import {
   agregarGasto,
   borrarGasto,
@@ -45,13 +50,19 @@ router.get('/clientes', asyncHandler(getClientes));
 
 router.get('/mis-tickets', asyncHandler(misTickets));
 
+router.get('/tickets/:uuid', asyncHandler(detalleTecnico));
+
 router.patch('/tickets/:uuid/iniciar-servicio', idempotencia, asyncHandler(iniciarServicioTecnico));
 
 router.patch('/tickets/:uuid/atender', idempotencia, asyncHandler(atenderTecnico));
 
+router.post('/dispositivos/push', asyncHandler(registrarPush));
+
+router.delete('/dispositivos/push', asyncHandler(eliminarPush));
+
 router.get('/tickets/:uuid/gastos', asyncHandler(verGastos));
 
-router.post('/tickets/:uuid/gastos', asyncHandler(agregarGasto));
+router.post('/tickets/:uuid/gastos', idempotencia, asyncHandler(agregarGasto));
 
 router.put('/tickets/:uuid/gastos/:gasto_uuid', asyncHandler(editarGasto));
 

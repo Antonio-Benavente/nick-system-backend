@@ -7,6 +7,7 @@ import {
 } from '../validators/validators.js';
 import { abortar } from '../middlewares/error.middleware.js';
 import { conTransaccion } from '../services/transaccion.service.js';
+import { revocarDispositivos } from '../services/dispositivos.service.js';
 import { leerPaginacion, cabeceraPaginacion, contar } from '../services/paginacion.service.js';
 
 const CAMPOS_TECNICO = ['nombre', 'email', 'telefono', 'especialidad'];
@@ -214,6 +215,11 @@ export const updateTecnico = async (req, res) => {
         'UPDATE users SET password = ?, sesion_version = sesion_version + 1 WHERE id = ?',
         [hashedPassword, userId]
       );
+
+      await revocarDispositivos(userId, {
+        motivo: 'admin_password',
+        conexion: connection
+      });
     }
   });
 
@@ -239,6 +245,11 @@ export const deleteTecnico = async (req, res) => {
     );
 
     if (tecnico[0].user_id) {
+      await revocarDispositivos(tecnico[0].user_id, {
+        motivo: 'inactivacion',
+        conexion: connection
+      });
+
       await connection.query(
         'UPDATE users SET sesion_version = sesion_version + 1 WHERE id = ?',
         [tecnico[0].user_id]
@@ -250,14 +261,23 @@ export const deleteTecnico = async (req, res) => {
 };
 
 export const restaurarTecnico = async (req, res) => {
-  const [result] = await pool.query(
-    `UPDATE tecnicos SET estado = 'activo' WHERE uuid = ? AND estado = 'inactivo'`,
+  const [tecnico] = await pool.query(
+    'SELECT user_id, estado FROM tecnicos WHERE uuid = ?',
     [req.params.uuid]
   );
 
-  if (result.affectedRows === 0) {
+  if (!tecnico.length || tecnico[0].estado === 'activo') {
     throw abortar(404, 'Técnico no encontrado o ya está activo');
   }
+
+  if (tecnico[0].user_id) {
+    await revocarDispositivos(tecnico[0].user_id, { motivo: 'restauracion' });
+  }
+
+  await pool.query(
+    `UPDATE tecnicos SET estado = 'activo' WHERE uuid = ? AND estado = 'inactivo'`,
+    [req.params.uuid]
+  );
 
   res.json({ message: 'Técnico restaurado correctamente' });
 };

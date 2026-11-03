@@ -528,3 +528,64 @@ export const validateCategoria = (data) => {
 
   return true;
 };
+
+export const REGEX_PUSH_TOKEN = /^Expo(?:nent)?PushToken\[[^\]]+\]$/;
+
+export const validarPushToken = (token) => {
+  const limpio = texto(token);
+
+  if (!limpio || !REGEX_PUSH_TOKEN.test(limpio)) {
+    throw new ValidationError(
+      'El token de push no tiene un formato válido',
+      'expo_push_token'
+    );
+  }
+
+  if (limpio.length > 255) {
+    throw new ValidationError(
+      'El token de push no puede superar 255 caracteres',
+      'expo_push_token'
+    );
+  }
+
+  return limpio;
+};
+
+const PLATAFORMAS_APP = ['android', 'ios'];
+
+export const validarDispositivoApp = (dispositivo) => {
+  if (dispositivo === undefined || dispositivo === null) return {};
+
+  if (typeof dispositivo !== 'object' || Array.isArray(dispositivo)) {
+    throw new ValidationError('El dispositivo debe ser un objeto', 'dispositivo');
+  }
+
+  const resultado = {};
+
+  if (dispositivo.nombre !== undefined && dispositivo.nombre !== null) {
+    const nombre = texto(dispositivo.nombre);
+    limite(nombre, 100, 'dispositivo.nombre', 'El nombre del dispositivo');
+    resultado.nombre = nombre || null;
+  }
+
+  if (dispositivo.plataforma !== undefined && dispositivo.plataforma !== null) {
+    const plataforma = texto(dispositivo.plataforma).toLowerCase();
+
+    if (!PLATAFORMAS_APP.includes(plataforma)) {
+      throw new ValidationError(
+        'La plataforma debe ser "android" o "ios"',
+        'dispositivo.plataforma'
+      );
+    }
+
+    resultado.plataforma = plataforma;
+  }
+
+  if (dispositivo.app_version !== undefined && dispositivo.app_version !== null) {
+    const version = texto(dispositivo.app_version);
+    limite(version, 20, 'dispositivo.app_version', 'La versión de la app');
+    resultado.appVersion = version || null;
+  }
+
+  return resultado;
+};

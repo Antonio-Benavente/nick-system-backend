@@ -11,6 +11,7 @@ import {
 } from '../services/ticketService.js';
 import { leerPaginacion, cabeceraPaginacion, contar } from '../services/paginacion.service.js';
 import { bitacora } from '../services/bitacora.service.js';
+import { notificarAsignacion } from '../services/push.service.js';
 import emailService from '../services/email.service.js';
 import { urlSeguimiento } from '../services/ticketIngesta.service.js';
 import { abortar } from '../middlewares/error.middleware.js';
@@ -178,12 +179,33 @@ export const asignarAdmin = async (req, res) => {
 
   if (!tecnicos.length) throw abortar(404, 'Técnico no encontrado');
 
-  await responderTransicion(
-    res,
-    await aplicarTransicion('asignar', req.params.uuid, { tecnicoUuid }),
-    req.params.uuid,
-    { accion: 'asignado', actor: req.user?.email || 'admin' }
+  const [previos] = await pool.query(
+    'SELECT codigo, tecnico_uuid FROM tickets WHERE uuid = ?',
+    [req.params.uuid]
   );
+
+  if (!previos.length) throw abortar(404, 'Ticket no encontrado');
+
+  const anterior = previos[0].tecnico_uuid || null;
+  const resultado = await aplicarTransicion('asignar', req.params.uuid, { tecnicoUuid });
+
+  await responderTransicion(res, resultado, req.params.uuid, {
+    accion: 'asignado',
+    actor: req.user?.email || 'admin'
+  });
+
+  if (resultado !== 'ok') return;
+
+  if (anterior !== tecnicoUuid) {
+    notificarAsignacion({
+      ticketUuid: req.params.uuid,
+      codigo: previos[0].codigo,
+      tecnicoNuevoUuid: tecnicoUuid,
+      tecnicoAnteriorUuid: anterior
+    }).catch((error) => {
+      bitacora('push', `No se pudo notificar la asignación: ${error.message}`);
+    });
+  }
 };
 
 export const cancelarAdmin = async (req, res) => {
@@ -271,6 +293,22 @@ export const misTickets = async (req, res) => {
   );
 
   res.json(filas);
+};
+
+export const detalleTecnico = async (req, res) => {
+  const tecnico = req.user.tecnico;
+
+  if (!tecnico) throw abortar(404, 'Técnico no encontrado');
+
+  const [filas] = await pool.query(
+    `SELECT ${COLUMNAS_TICKET} FROM tickets
+     WHERE uuid = ? AND tecnico_uuid = ?`,
+    [req.params.uuid, tecnico.uuid]
+  );
+
+  if (!filas.length) throw abortar(404, 'Ticket no encontrado');
+
+  res.json(filas[0]);
 };
 
 export const iniciarServicioTecnico = async (req, res) => {
