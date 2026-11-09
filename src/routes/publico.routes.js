@@ -3,7 +3,7 @@ import rateLimit from 'express-rate-limit';
 import {
   registrarConformidadPublico,
   seguimientoPublico
-} from '../controllers/ticketsController.js';
+} from '../controllers/tickets.publico.controller.js';
 import { infoAppTecnicos } from '../controllers/publico.controller.js';
 import { asyncHandler } from '../middlewares/async.middleware.js';
 import { limiteExcedido } from '../middlewares/limite.middleware.js';

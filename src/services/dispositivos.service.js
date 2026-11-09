@@ -136,6 +136,63 @@ export const listarDispositivosTecnico = async (tecnicoUuid) => {
   return filas;
 };
 
+const SELECT_DISPOSITIVO_ADMIN = `
+  SELECT
+    d.id,
+    d.sid,
+    t.uuid AS tecnico_uuid,
+    t.nombre AS tecnico_nombre,
+    d.nombre,
+    d.plataforma,
+    d.app_version,
+    d.created_at,
+    d.last_seen_at,
+    d.revocado_at,
+    d.motivo_revocacion,
+    CASE WHEN d.revocado_at IS NULL THEN 'activo' ELSE 'revocado' END AS estado,
+    (d.expo_push_token IS NOT NULL) AS tiene_push
+  FROM dispositivos d
+  INNER JOIN tecnicos t ON t.user_id = d.user_id
+`;
+
+export const listarDispositivosGlobal = async ({
+  tecnicoUuid = null,
+  limite = 25,
+  offset = 0,
+  conexion = pool
+} = {}) => {
+  const filtro = tecnicoUuid ? 'WHERE t.uuid = ?' : '';
+  const parametros = tecnicoUuid ? [tecnicoUuid] : [];
+
+  const [filas] = await conexion.query(
+    `${SELECT_DISPOSITIVO_ADMIN}
+     ${filtro}
+     ORDER BY t.nombre ASC, d.nombre ASC, d.created_at DESC
+     LIMIT ? OFFSET ?`,
+    [...parametros, limite, offset]
+  );
+
+  return filas;
+};
+
+export const contarDispositivosGlobal = async ({
+  tecnicoUuid = null,
+  conexion = pool
+} = {}) => {
+  const filtro = tecnicoUuid ? 'WHERE t.uuid = ?' : '';
+  const parametros = tecnicoUuid ? [tecnicoUuid] : [];
+
+  const [[fila]] = await conexion.query(
+    `SELECT COUNT(*) AS total
+     FROM dispositivos d
+     INNER JOIN tecnicos t ON t.user_id = d.user_id
+     ${filtro}`,
+    parametros
+  );
+
+  return Number(fila?.total || 0);
+};
+
 export const revocarDispositivoDeTecnico = async (tecnicoUuid, dispositivoId, motivo) => {
   const [resultado] = await pool.query(
     `UPDATE dispositivos d

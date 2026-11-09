@@ -2,7 +2,7 @@
 
 API REST Express 4 + MySQL (`mysql2`) en ESM. Es la fuente de verdad de los endpoints: los **controllers** definen los shapes de request/response.
 
-Despliegue en Render (`render.yaml` + `Dockerfile`, Node 20 Alpine).
+Despliegue en Render (`render.yaml` + `Dockerfile`, Node 24 Alpine). Requiere Node 24 (LTS) en desarrollo, Docker, Render y CI.
 
 ## Desarrollo y pruebas
 
@@ -15,7 +15,7 @@ pnpm test     # node --test (sin dependencias extra)
 
 Los tests usan `node:test` y son idempotentes: crean sus propios usuarios, técnicos, tickets y dispositivos, y los borran al final. Los que tocan la base (revocación por dispositivo, purga, detalle de ticket ajeno, login de la app) se **omiten** si MySQL o las tablas no están disponibles, así que la suite también corre en una máquina sin base.
 
-No hay CI: se ejecutan a mano. Para que corran contra la base local con las tablas nuevas:
+La versión de Node está fijada en **24 LTS** (`.nvmrc`, `.node-version`, `engines`, Dockerfile, Render y CI). El workflow `.github/workflows/ci.yml` ejecuta `pnpm test` en cada push a `main` y pull request. Para que los tests corran contra la base local con las tablas nuevas:
 
 ```powershell
 $env:DATABASE_URL='mysql://root@localhost:3307/nicksystemlocal'
@@ -154,7 +154,10 @@ src/
 │   ├── schemas.js                      # Esquemas zod + validarConZod (observe/enforce)
 │   └── ticketValidators.js             # Validadores de tickets y esUUID()
 ├── controllers/                        # Fuente de verdad de request/response
-│   ├── ticketsController.js            # Tickets + seguimiento público
+│   ├── tickets.admin.controller.js     # Tickets: listado, alta y gestión (admin)
+│   ├── tickets.tecnico.controller.js   # Tickets asignados al técnico
+│   ├── tickets.publico.controller.js   # Seguimiento y conformidad pública
+│   ├── tickets.comun.js                # Helpers compartidos de tickets
 │   └── webhooks.controller.js          # Handlers de Resend y Meta
 ├── services/
 │   ├── ticketService.js                # crearTicket (genera el código), transiciones, COLUMNAS_TICKET
@@ -332,8 +335,11 @@ No existe hoy un endpoint de cambio de rol. Si se añade, debe llamar a `revocar
 | DELETE | `/admin/tecnicos/:uuid` | Inactivar técnico |
 | PATCH | `/admin/tecnicos/:uuid/restaurar` | Restaurar técnico |
 | GET | `/admin/tecnicos/:uuid/dispositivos` | Dispositivos de la app (nombre, versión, última actividad, push, revocado) |
-| DELETE | `/admin/tecnicos/:uuid/dispositivos/:id` | Revocar un dispositivo concreto |
+| GET | `/admin/dispositivos` | Listado global paginado de dispositivos de todos los técnicos (filtro `tecnico_uuid`) |
+| DELETE | `/admin/tecnicos/:uuid/dispositivos/:id` | Revocar un dispositivo concreto. Exige `{ motivo }` (obligatorio, máximo 50 caracteres) |
 | POST | `/admin/tecnicos/:uuid/cerrar-sesiones` | Revocar todos los dispositivos del técnico |
+
+`GET /admin/dispositivos` acepta `pagina`, `por_pagina` y `tecnico_uuid` (opcional). Devuelve un arreglo y el total en `X-Total-Count`, ordenado por nombre de técnico y, dentro de cada técnico, por nombre de dispositivo. Cada fila incluye `tecnico_uuid`, `tecnico_nombre`, `nombre`, `plataforma`, `app_version`, `created_at`, `last_seen_at`, `estado`, `motivo_revocacion` y `tiene_push`.
 | GET | `/admin/clientes` | Listar clientes |
 | GET | `/admin/clientes/:uuid` | Detalle de cliente |
 | POST | `/admin/clientes` | Crear cliente |

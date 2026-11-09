@@ -1,7 +1,7 @@
 # ==========================================
 # ETAPA 1: Build
 # ==========================================
-FROM node:20-alpine AS builder
+FROM node:24-alpine AS builder
 
 WORKDIR /app
 
@@ -15,7 +15,7 @@ RUN corepack enable && corepack prepare pnpm@11.22.0 --activate \
 # ==========================================
 # ETAPA 2: Production
 # ==========================================
-FROM node:20-alpine
+FROM node:24-alpine
 
 WORKDIR /app
 

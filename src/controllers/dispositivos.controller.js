@@ -4,12 +4,15 @@ import { abortar } from '../middlewares/error.middleware.js';
 import { validarConZod, esquemaPushToken } from '../validators/schemas.js';
 import { validarPushToken } from '../validators/validators.js';
 import {
+  contarDispositivosGlobal,
+  listarDispositivosGlobal,
   listarDispositivosTecnico,
   quitarPushToken,
   registrarPushToken,
   revocarDispositivoDeTecnico,
   revocarDispositivos
 } from '../services/dispositivos.service.js';
+import { leerPaginacion, cabeceraPaginacion } from '../services/paginacion.service.js';
 
 const exigirSesionDeApp = (req) => {
   if (!req.user?.sid) {
@@ -66,13 +69,53 @@ export const listarDispositivos = async (req, res) => {
   res.json(await listarDispositivosTecnico(tecnico.uuid));
 };
 
+export const listarDispositivosAdmin = async (req, res) => {
+  const paginacion = leerPaginacion(req.query);
+  const tecnicoUuid = req.query.tecnico_uuid
+    ? String(req.query.tecnico_uuid).trim()
+    : null;
+
+  const total = await contarDispositivosGlobal({ tecnicoUuid });
+  cabeceraPaginacion(res, { total, ...paginacion });
+
+  res.json(
+    await listarDispositivosGlobal({
+      tecnicoUuid,
+      limite: paginacion.limite,
+      offset: paginacion.offset
+    })
+  );
+};
+
 export const revocarDispositivo = async (req, res) => {
   const tecnico = await buscarTecnico(req.params.uuid);
 
+  const dispositivoId = Number(req.params.id);
+
+  if (!Number.isInteger(dispositivoId) || dispositivoId <= 0) {
+    throw abortar(400, 'Dispositivo inválido');
+  }
+
+  const motivoCrudo = req.body?.motivo ?? req.query?.motivo;
+
+  if (typeof motivoCrudo !== 'string') {
+    throw abortar(400, 'El motivo de revocación es obligatorio');
+  }
+
+  const motivo = motivoCrudo.trim();
+
+  if (!motivo) {
+    throw abortar(400, 'El motivo de revocación es obligatorio');
+  }
+
+  if (motivo.length > 50) {
+    throw abortar(400, 'El motivo no puede superar los 50 caracteres');
+  }
+
   const revocado = await revocarDispositivoDeTecnico(
     tecnico.uuid,
-    Number(req.params.id),
-    'admin_dispositivo'
+    dispositivoId,
+    motivo
   );
 
   if (!revocado) {

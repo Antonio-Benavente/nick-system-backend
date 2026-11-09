@@ -12,7 +12,7 @@ import {
   detalleTecnico,
   iniciarServicioTecnico,
   misTickets
-} from '../controllers/ticketsController.js';
+} from '../controllers/tickets.tecnico.controller.js';
 import {
   eliminarPush,
   registrarPush

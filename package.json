@@ -15,7 +15,7 @@
   "author": "Nick System",
   "license": "ISC",
   "engines": {
-    "node": ">=20"
+    "node": "^24.0.0"
   },
   "packageManager": "pnpm@11.22.0",
   "scripts": {

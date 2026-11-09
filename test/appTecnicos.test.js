@@ -7,7 +7,7 @@ import pool from '../src/config/db.js';
 import { config } from '../src/config/env.js';
 import authMiddleware from '../src/middlewares/auth.middleware.js';
 import { login } from '../src/controllers/auth.controller.js';
-import { detalleTecnico } from '../src/controllers/ticketsController.js';
+import { detalleTecnico } from '../src/controllers/tickets.tecnico.controller.js';
 import {
   construirPayloadAsignacion,
   construirPayloadReasignacion
