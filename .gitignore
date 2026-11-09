@@ -37,5 +37,6 @@ build/
 # Otros
 *.sqlite
 *.db
+test/
 
 NickSystemLocal.sql

@@ -2,30 +2,22 @@
 
 API REST Express 4 + MySQL (`mysql2`) en ESM. Es la fuente de verdad de los endpoints: los **controllers** definen los shapes de request/response.
 
-Despliegue en Render (`render.yaml` + `Dockerfile`, Node 24 Alpine). Requiere Node 24 (LTS) en desarrollo, Docker, Render y CI.
+Despliegue en Render (`render.yaml` + `Dockerfile`, Node 24 Alpine). Requiere Node 24 (LTS) en desarrollo, Docker y Render.
 
-## Desarrollo y pruebas
+## Desarrollo
 
 ```bash
 pnpm install
 pnpm dev      # nodemon
 pnpm start    # node
-pnpm test     # node --test (sin dependencias extra)
 ```
 
-Los tests usan `node:test` y son idempotentes: crean sus propios usuarios, técnicos, tickets y dispositivos, y los borran al final. Los que tocan la base (revocación por dispositivo, purga, detalle de ticket ajeno, login de la app) se **omiten** si MySQL o las tablas no están disponibles, así que la suite también corre en una máquina sin base.
-
-La versión de Node está fijada en **24 LTS** (`.nvmrc`, `.node-version`, `engines`, Dockerfile, Render y CI). El workflow `.github/workflows/ci.yml` ejecuta `pnpm test` en cada push a `main` y pull request. Para que los tests corran contra la base local con las tablas nuevas:
-
-```powershell
-$env:DATABASE_URL='mysql://root@localhost:3307/nicksystemlocal'
-pnpm test
-```
+La versión de Node está fijada en **24 LTS** (`.nvmrc`, `.node-version`, `engines`, Dockerfile y Render).
 
 
 ## Contenido
 
-- [Desarrollo y pruebas](#desarrollo-y-pruebas)
+- [Desarrollo](#desarrollo)
 - [Variables de Entorno](#variables-de-entorno-env)
 - [Arquitectura y Código](#arquitectura-y-código)
   - [Capas](#capas)
@@ -263,7 +255,7 @@ Las columnas `password`, `pc_password` y `anydesk_password` se guardan cifradas 
 - La clave vive en `CLAVES_ENCRYPTION_KEY`, nunca en la base de datos.
 - Los valores antiguos en texto plano se siguen leyendo (compatibilidad durante el despliegue).
 - Migración de datos existentes: `node scripts/cifrar-claves.js`.
-- Rollback: `node scripts/cifrar-claves.js --descifrar` y luego el `ALTER TABLE` inverso de `CAMBIOS-BD.txt`.
+- Rollback: `node scripts/cifrar-claves.js --descifrar` y luego el `ALTER TABLE` inverso correspondiente.
 - Si se pierde la clave, las credenciales cifradas no se pueden recuperar.
 
 ### Validación de evidencias
@@ -1015,10 +1007,10 @@ Estructura completa en `database/schema.sql` (incluye un usuario admin **solo pa
 mysql -u root -p nicksystemlocal < database/schema.sql
 ```
 
-**Base existente** — aplicar a mano el bloque `SQL:` de la entrada correspondiente en **`database/CAMBIOS-BD.txt`**, que es el historial acumulativo (fecha, fase, SQL, rollback y entornos donde ya se aplicó). Cada cambio de código que toca el esquema debe agregar su entrada ahí en el mismo cambio. No se editan entradas antiguas.
+**Base existente** — aplicar a mano los `ALTER TABLE` correspondientes. Cada cambio de código que toca el esquema debe reflejarse también en **`database/schema.sql`**, que es el esquema vigente para instalaciones nuevas.
 
 ```bash
-mysql -u root -p nicksystemlocal -e "<SQL de la entrada>"
+mysql -u root -p nicksystemlocal -e "<SQL del cambio>"
 ```
 
 Al aplicar un cambio, conviene comprobar que no quedaron filas a medias:
