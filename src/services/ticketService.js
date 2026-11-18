@@ -33,6 +33,10 @@ export const COLUMNAS_TICKET = `uuid, codigo, empresa_solicitante, nombre_solici
   tecnico_uuid, cliente_uuid, canal, modalidad, contacto_origen, nota_cierre,
   fecha_asignacion, fecha_inicio_servicio, fecha_cierre, created_at, updated_at`;
 
+const COLUMNAS_TICKET_T = COLUMNAS_TICKET.split(',')
+  .map((columna) => `t.${columna.trim()}`)
+  .join(', ');
+
 export const ticketPorMensajeExterno = async (mensajeExternoId) => {
   if (!mensajeExternoId) return null;
 
@@ -210,4 +214,190 @@ export const desvincularCliente = async (ticketUuid) => {
   );
 
   return resultado.affectedRows === 1;
+};
+
+const OFFSET_LIMA = '-05:00';
+
+const construirFiltrosListado = (filtros = {}) => {
+  const condiciones = [];
+  const parametros = [];
+
+  const filtrosSimples = [
+    ['estado', 'estado = ?'],
+    ['tecnico_uuid', 'tecnico_uuid = ?'],
+    ['modalidad', 'modalidad = ?'],
+    ['cliente_uuid', 'cliente_uuid = ?']
+  ];
+
+  for (const [campo, condicion] of filtrosSimples) {
+    if (filtros[campo]) {
+      condiciones.push(condicion);
+      parametros.push(filtros[campo]);
+    }
+  }
+
+  if (filtros.empresa) {
+    condiciones.push('empresa_solicitante LIKE ?');
+    parametros.push(`%${filtros.empresa}%`);
+  }
+
+  if (filtros.sin_cliente === 'true') {
+    condiciones.push('cliente_uuid IS NULL');
+  }
+
+  if (filtros.fecha_desde) {
+    condiciones.push("DATE(CONVERT_TZ(created_at, '+00:00', ?)) >= ?");
+    parametros.push(OFFSET_LIMA, filtros.fecha_desde);
+  }
+  if (filtros.fecha_hasta) {
+    condiciones.push("DATE(CONVERT_TZ(created_at, '+00:00', ?)) <= ?");
+    parametros.push(OFFSET_LIMA, filtros.fecha_hasta);
+  }
+  if (filtros.cierre_desde) {
+    condiciones.push("fecha_cierre IS NOT NULL AND DATE(CONVERT_TZ(fecha_cierre, '+00:00', ?)) >= ?");
+    parametros.push(OFFSET_LIMA, filtros.cierre_desde);
+  }
+  if (filtros.cierre_hasta) {
+    condiciones.push("fecha_cierre IS NOT NULL AND DATE(CONVERT_TZ(fecha_cierre, '+00:00', ?)) <= ?");
+    parametros.push(OFFSET_LIMA, filtros.cierre_hasta);
+  }
+
+  return {
+    donde: condiciones.length ? `WHERE ${condiciones.join(' AND ')}` : '',
+    parametros
+  };
+};
+
+export const listarTickets = async ({ filtros, paginacion }) => {
+  const { donde, parametros } = construirFiltrosListado(filtros);
+
+  let total = null;
+
+  if (paginacion.activa) {
+    const [filas] = await pool.query(
+      `SELECT COUNT(*) AS total FROM tickets ${donde}`,
+      parametros
+    );
+    total = Number(filas[0]?.total || 0);
+  }
+
+  const [tickets] = await pool.query(
+    `SELECT ${COLUMNAS_TICKET} FROM tickets ${donde} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+    [...parametros, paginacion.limite, paginacion.offset]
+  );
+
+  return { filas: tickets, total };
+};
+
+export const obtenerTicketPorUuid = async (uuid) => {
+  const [filas] = await pool.query(
+    `SELECT ${COLUMNAS_TICKET} FROM tickets WHERE uuid = ?`,
+    [uuid]
+  );
+
+  return filas[0] || null;
+};
+
+export const listarTicketsDeTecnico = async (tecnicoUuid, paginacion) => {
+  let total = null;
+
+  if (paginacion.activa) {
+    const [filas] = await pool.query(
+      'SELECT COUNT(*) AS total FROM tickets WHERE tecnico_uuid = ?',
+      [tecnicoUuid]
+    );
+    total = Number(filas[0]?.total || 0);
+  }
+
+  const [tickets] = await pool.query(
+    `SELECT ${COLUMNAS_TICKET} FROM tickets
+     WHERE tecnico_uuid = ?
+     ORDER BY FIELD(estado, 'en_servicio', 'asignado', 'pendiente', 'atendido', 'cancelado'), created_at DESC
+     LIMIT ? OFFSET ?`,
+    [tecnicoUuid, paginacion.limite, paginacion.offset]
+  );
+
+  return { filas: tickets, total };
+};
+
+export const obtenerTicketDeTecnico = async (uuid, tecnicoUuid) => {
+  const [filas] = await pool.query(
+    `SELECT ${COLUMNAS_TICKET_T},
+            t.tecnico_uuid = ? AS es_tuyo,
+            aviso.estado AS aviso_estado,
+            aviso.mensaje AS aviso_mensaje
+     FROM tickets t
+     LEFT JOIN ticket_avisos aviso
+       ON aviso.ticket_uuid = t.uuid
+      AND aviso.tecnico_uuid = ?
+      AND aviso.estado IN ('pendiente', 'aceptada')
+     WHERE t.uuid = ?
+       AND (t.tecnico_uuid = ? OR aviso.id IS NOT NULL)`,
+    [tecnicoUuid, tecnicoUuid, uuid, tecnicoUuid]
+  );
+
+  if (!filas[0]) return null;
+
+  return { ...filas[0], es_tuyo: Boolean(filas[0].es_tuyo) };
+};
+
+export const obtenerSeguimientoPublico = async (identificador, esUuid) => {
+  const condicion = esUuid ? 'uuid = ?' : 'codigo = ?';
+
+  const [filas] = await pool.query(
+    `SELECT uuid, codigo, asunto, estado, cliente_conforme, aprobado_por,
+            fecha_conformidad, motivo_no_conforme, created_at, fecha_asignacion,
+            fecha_inicio_servicio, fecha_cierre
+     FROM tickets WHERE ${condicion}`,
+    [identificador]
+  );
+
+  return filas[0] || null;
+};
+
+export const obtenerTicketParaConformidad = async (uuid) => {
+  const [filas] = await pool.query(
+    `SELECT uuid, codigo, empresa_solicitante, nombre_solicitante, asunto,
+            cliente_conforme, aprobado_por, motivo_no_conforme, fecha_conformidad
+     FROM tickets WHERE uuid = ?`,
+    [uuid]
+  );
+
+  return filas[0] || null;
+};
+
+export const buscarTecnicoActivoPorUuid = async (uuid) => {
+  const [filas] = await pool.query(
+    "SELECT uuid FROM tecnicos WHERE uuid = ? AND estado = 'activo'",
+    [uuid]
+  );
+
+  return filas[0] || null;
+};
+
+export const obtenerTicketParaAsignacion = async (uuid) => {
+  const [filas] = await pool.query(
+    'SELECT codigo, tecnico_uuid FROM tickets WHERE uuid = ?',
+    [uuid]
+  );
+
+  return filas[0] || null;
+};
+
+export const obtenerTicketEstado = async (uuid) => {
+  const [filas] = await pool.query(
+    'SELECT uuid, estado FROM tickets WHERE uuid = ?',
+    [uuid]
+  );
+
+  return filas[0] || null;
+};
+
+export const buscarClienteActivoPorUuid = async (uuid) => {
+  const [filas] = await pool.query(
+    "SELECT uuid, nombre, empresa FROM clientes WHERE uuid = ? AND estado = 'activo'",
+    [uuid]
+  );
+
+  return filas[0] || null;
 };

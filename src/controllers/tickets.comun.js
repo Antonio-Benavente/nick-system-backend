@@ -1,5 +1,4 @@
-import pool from '../config/db.js';
-import { COLUMNAS_TICKET } from '../services/ticketService.js';
+import { obtenerTicketPorUuid } from '../services/ticketService.js';
 import { bitacora } from '../services/bitacora.service.js';
 
 export const ERRORES_TRANSICION = {
@@ -17,18 +16,14 @@ export const responderTransicion = async (res, resultado, uuid, { accion, actor 
     return res.status(codigo).json({ message });
   }
 
-  const [filas] = await pool.query(
-    `SELECT ${COLUMNAS_TICKET} FROM tickets WHERE uuid = ?`,
-    [uuid]
-  );
+  const ticket = await obtenerTicketPorUuid(uuid);
 
   if (accion) {
-    const ticket = filas[0];
     bitacora(
       'tickets',
       `Ticket ${ticket?.codigo || uuid} → ${accion}${actor ? ` por ${actor}` : ''}`
     );
   }
 
-  return res.json(filas[0]);
+  return res.json(ticket);
 };

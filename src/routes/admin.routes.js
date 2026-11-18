@@ -31,10 +31,12 @@ import {
 } from '../controllers/dispositivos.controller.js';
 import {
   asignarAdmin,
+  avisarTecnicoAdmin,
   cancelarAdmin,
   crearAdmin,
   detalleAdmin,
   listarAdmin,
+  listarAvisosTicketAdmin,
   modalidadAdmin,
   vincularClienteAdmin
 } from '../controllers/tickets.admin.controller.js';
@@ -123,6 +125,8 @@ router.patch('/tickets/:uuid/modalidad', idempotencia, asyncHandler(modalidadAdm
 
 router.patch('/tickets/:uuid/asignar', idempotencia, asyncHandler(asignarAdmin));
 
+router.post('/tickets/:uuid/avisar', idempotencia, asyncHandler(avisarTecnicoAdmin));
+
 router.patch('/tickets/:uuid/cancelar', idempotencia, asyncHandler(cancelarAdmin));
 
 router.patch(
@@ -130,6 +134,8 @@ router.patch(
   idempotencia,
   asyncHandler(vincularClienteAdmin)
 );
+
+router.get('/tickets/:uuid/avisos', asyncHandler(listarAvisosTicketAdmin));
 
 router.get('/tickets/:uuid/gastos', asyncHandler(verGastos));
 

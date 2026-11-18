@@ -1,9 +1,17 @@
-import pool from '../config/db.js';
-import { COLUMNAS_TICKET, aplicarTransicion } from '../services/ticketService.js';
-import { leerPaginacion, cabeceraPaginacion, contar } from '../services/paginacion.service.js';
+import {
+  aplicarTransicion,
+  listarTicketsDeTecnico,
+  obtenerTicketDeTecnico
+} from '../services/ticketService.js';
+import { leerPaginacion, cabeceraPaginacion } from '../services/paginacion.service.js';
 import { abortar } from '../middlewares/error.middleware.js';
 import { validarAtencion } from '../validators/ticketValidators.js';
 import { responderTransicion } from './tickets.comun.js';
+import {
+  aceptarAvisoTecnico,
+  listarAvisosDeTecnico
+} from '../services/avisos.service.js';
+import { bitacora } from '../services/bitacora.service.js';
 
 export const misTickets = async (req, res) => {
   const tecnico = req.user.tecnico;
@@ -12,22 +20,11 @@ export const misTickets = async (req, res) => {
 
   const paginacion = leerPaginacion(req.query);
 
+  const { filas, total } = await listarTicketsDeTecnico(tecnico.uuid, paginacion);
+
   if (paginacion.activa) {
-    const total = await contar(
-      pool,
-      'SELECT COUNT(*) AS total FROM tickets WHERE tecnico_uuid = ?',
-      [tecnico.uuid]
-    );
     cabeceraPaginacion(res, { total, ...paginacion });
   }
-
-  const [filas] = await pool.query(
-    `SELECT ${COLUMNAS_TICKET} FROM tickets
-     WHERE tecnico_uuid = ?
-     ORDER BY FIELD(estado, 'en_servicio', 'asignado', 'pendiente', 'atendido', 'cancelado'), created_at DESC
-     LIMIT ? OFFSET ?`,
-    [tecnico.uuid, paginacion.limite, paginacion.offset]
-  );
 
   res.json(filas);
 };
@@ -37,15 +34,11 @@ export const detalleTecnico = async (req, res) => {
 
   if (!tecnico) throw abortar(404, 'Técnico no encontrado');
 
-  const [filas] = await pool.query(
-    `SELECT ${COLUMNAS_TICKET} FROM tickets
-     WHERE uuid = ? AND tecnico_uuid = ?`,
-    [req.params.uuid, tecnico.uuid]
-  );
+  const ticket = await obtenerTicketDeTecnico(req.params.uuid, tecnico.uuid);
 
-  if (!filas.length) throw abortar(404, 'Ticket no encontrado');
+  if (!ticket) throw abortar(404, 'Ticket no encontrado');
 
-  res.json(filas[0]);
+  res.json(ticket);
 };
 
 export const iniciarServicioTecnico = async (req, res) => {
@@ -77,4 +70,49 @@ export const atenderTecnico = async (req, res) => {
     req.params.uuid,
     { accion: 'atendido', actor: req.user?.email || tecnico.nombre }
   );
+};
+
+export const listarAvisosTecnico = async (req, res) => {
+  const tecnico = req.user.tecnico;
+
+  if (!tecnico) throw abortar(404, 'Técnico no encontrado');
+
+  res.json(await listarAvisosDeTecnico(tecnico.uuid));
+};
+
+export const aceptarAvisoTecnicoController = async (req, res) => {
+  const tecnico = req.user.tecnico;
+
+  if (!tecnico) throw abortar(404, 'Técnico no encontrado');
+
+  const resultado = await aceptarAvisoTecnico(req.params.uuid, tecnico.uuid);
+
+  const respuestas = {
+    asignado: [200, { message: 'Ticket aceptado y asignado a ti', asignado: true }],
+    ya_asignado: [
+      200,
+      { message: 'Ya tenías este ticket asignado', asignado: true, ya_asignado: true }
+    ],
+    ya_asignado_otro: [
+      200,
+      {
+        message: 'El ticket ya está asignado a otro técnico. No se reasignó.',
+        asignado: false,
+        motivo: 'ya_asignado_otro'
+      }
+    ],
+    aviso_no_pendiente: [409, { message: 'Ya respondiste este aviso o ya no está disponible' }],
+    ticket_cerrado: [409, { message: 'El ticket ya está cerrado y no se puede aceptar' }],
+    estado_invalido: [409, { message: 'El ticket cambió de estado. Actualiza la pantalla' }],
+    no_existe: [404, { message: 'Ticket no encontrado' }]
+  };
+
+  const [estatus, cuerpo] = respuestas[resultado];
+
+  bitacora(
+    'tickets',
+    `Aviso ${resultado} del ticket ${req.params.uuid} por ${req.user?.email || tecnico.nombre}`
+  );
+
+  res.status(estatus).json(cuerpo);
 };

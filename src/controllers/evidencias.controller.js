@@ -5,15 +5,10 @@ import { abortar } from '../middlewares/error.middleware.js';
 import { conTransaccion } from '../services/transaccion.service.js';
 import { validarEvidencias } from '../validators/validators.js';
 import { validarEvidenciasRemotas } from '../services/evidenciasRemotas.service.js';
+import { soloDefinidos } from '../utils/objetos.js';
 
 const CAMPOS_EDITABLES = ['url', 'tipo', 'descripcion', 'orden'];
 const ORDEN_POR_DEFECTO = 1;
-
-const soloDefinidos = (body, campos) =>
-  campos.reduce((acc, campo) => {
-    if (body[campo] !== undefined) acc[campo] = body[campo];
-    return acc;
-  }, {});
 
 export const getEvidencias = async (req, res) => {
   const reporte = await reporteAccesible(req.params.reporte_uuid, req.user);

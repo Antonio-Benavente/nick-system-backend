@@ -69,7 +69,8 @@ export const guardarDatos = async (numero, datos) => {
   if (!numero) return;
 
   await pool.query('UPDATE whatsapp_conversaciones SET datos = ? WHERE numero = ?', [
-    JSON.stringify(datos && typeof datos === 'object' ? datos : {})
+    JSON.stringify(datos && typeof datos === 'object' ? datos : {}),
+    numero
   ]);
 };
 

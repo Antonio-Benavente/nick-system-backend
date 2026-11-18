@@ -8,9 +8,11 @@ import {
   reenviarReporte
 } from '../controllers/tecnico.controller.js';
 import {
+  aceptarAvisoTecnicoController,
   atenderTecnico,
   detalleTecnico,
   iniciarServicioTecnico,
+  listarAvisosTecnico,
   misTickets
 } from '../controllers/tickets.tecnico.controller.js';
 import {
@@ -50,7 +52,11 @@ router.get('/clientes', asyncHandler(getClientes));
 
 router.get('/mis-tickets', asyncHandler(misTickets));
 
+router.get('/avisos', asyncHandler(listarAvisosTecnico));
+
 router.get('/tickets/:uuid', asyncHandler(detalleTecnico));
+
+router.patch('/tickets/:uuid/aceptar', idempotencia, asyncHandler(aceptarAvisoTecnicoController));
 
 router.patch('/tickets/:uuid/iniciar-servicio', idempotencia, asyncHandler(iniciarServicioTecnico));
 

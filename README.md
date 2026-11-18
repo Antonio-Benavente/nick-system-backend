@@ -128,7 +128,15 @@ La versión de Node está fijada en **24 LTS** (`.nvmrc`, `.node-version`, `engi
 routes → validators → controllers → services → MySQL (pool)
 ```
 
-Los controllers son la **fuente de verdad** de los shapes de request/response. La mayoría consulta el pool directamente; la capa `services` cubre `admin`, entidades, emails, WhatsApp y la ingesta de tickets.
+Los controllers son la **fuente de verdad** de los shapes de request/response: validan, orquestan y responden. El acceso a datos y las reglas de negocio viven en `services/` (`admin`, tickets, técnicos, clientes, claves, categorías, evidencias, gastos, entidades, emails, WhatsApp e ingesta). Los controllers no arman SQL salvo en módulos heredados acotados (`auth`, `tecnico`, `cliente`, `evidencias`, `auditoría` y `dispositivos`).
+
+Criterios aplicados de forma pragmática:
+
+- **SRP**: cada controller delega la persistencia en un servicio; cada servicio agrupa un dominio.
+- **OCP**: las limpiezas periódicas se declaran en una lista (`limpieza.service.js`) y los filtros de tickets en un constructor de condiciones; agregar un caso no obliga a tocar el bucle principal.
+- **DRY**: helpers compartidos en `utils/` (`soloDefinidos`) en vez de repetir el mismo `reduce` en varios controllers.
+- **DIP (pragmático)**: los controllers dependen de servicios de dominio en lugar del pool; la transacción y el cifrado se resuelven dentro de esos servicios.
+
 
 ### Estructura de `src/`
 
@@ -152,7 +160,12 @@ src/
 │   ├── tickets.comun.js                # Helpers compartidos de tickets
 │   └── webhooks.controller.js          # Handlers de Resend y Meta
 ├── services/
-│   ├── ticketService.js                # crearTicket (genera el código), transiciones, COLUMNAS_TICKET
+│   ├── admin.service.js                # Dashboard, reportes y filtros del panel admin
+│   ├── tecnicos.service.js             # CRUD de técnicos y credenciales de su usuario
+│   ├── clientes.service.js             # CRUD de clientes y credenciales de su usuario
+│   ├── claves.service.js               # CRUD de credenciales + duplicados + cifrado
+│   ├── categorias.service.js           # Categorías y resolución/creación al vuelo
+│   ├── ticketService.js                # crearTicket (genera el código), transiciones, consultas y COLUMNAS_TICKET
 │   ├── ticketIngesta.service.js        # Alta de tickets entrantes
 │   ├── whatsappParser.service.js       # Parseo y plantillas de WhatsApp (testeable sin BD)
 │   ├── incomingEvents.service.js       # Idempotencia técnica de webhooks
@@ -162,13 +175,15 @@ src/
 │   ├── gastos.service.js               # CRUD de ticket_gastos
 │   ├── health.service.js               # Liveness/readiness y preflight de MySQL
 │   ├── warmup.service.js               # Ping de mantenimiento contra la URL pública
+│   ├── limpieza.service.js             # Registro de tareas cron de limpieza
 │   ├── email.service.js                # Resend: reportes y acuses
 │   ├── whatsapp.service.js             # Meta Cloud API: envío + verificación de firma
 │   ├── svix.service.js                 # Verificación de firma Svix (Resend)
 │   └── resendInbound.service.js        # Descarga del email recibido
 ├── middlewares/                        # auth, role, error, requestContext, idempotencia, límites
 ├── utils/
-│   └── fechas.js                       # Formato único en la zona horaria de la aplicación
+│   ├── fechas.js                       # Formato único en la zona horaria de la aplicación
+│   └── objetos.js                      # Helpers de objetos (soloDefinidos)
 ├── app.js                              # Express, CORS, rawBody, /health, /ready, montaje de rutas
 └── server.js                           # Punto de entrada (escucha en PORT)
 ```
@@ -359,7 +374,9 @@ Esto evita el problema original (reportes con categorías que no existen en `cat
 | POST | `/tecnicos/reportes/:reporteUUID/reenviar` | Reabrir y re-notificar: si estaba `no_conforme` vuelve a `por_confirmar` (limpia `aprobado_por`) y manda el correo |
 | GET | `/tecnicos/clientes` | Listar clientes (para asignar reporte) |
 | GET | `/tecnicos/mis-tickets` | Tickets asignados |
-| PATCH | `/tecnicos/tickets/:uuid/iniciar` | Poner en proceso |
+| GET | `/tecnicos/avisos` | Avisos pendientes de otros tickets |
+| PATCH | `/tecnicos/tickets/:uuid/aceptar` | Aceptar un aviso (asigna solo si el ticket está sin técnico) |
+| PATCH | `/tecnicos/tickets/:uuid/iniciar-servicio` | Poner en proceso |
 | PATCH | `/tecnicos/tickets/:uuid/atender` | Marcar atendido (nota opcional) |
 
 > **El técnico no marca la conformidad.** `POST /tecnicos/reportes` ignora `cliente_conforme` y `aprobado_por` y siempre guarda `por_confirmar`; `PUT /tecnicos/reportes/:reporteUUID` los descarta del body. La conformidad solo la registra el cliente en `PATCH /clientes/reportes/:uuid/conformidad`.
@@ -417,6 +434,8 @@ Autorización: además de autenticado, el usuario debe ser propietario del repor
 | POST | `/admin/tickets` | Admin | Crear ticket manual |
 | GET | `/admin/tickets/:uuid` | Admin | Detalle de ticket |
 | PATCH | `/admin/tickets/:uuid/asignar` | Admin | Asignar técnico (`{ tecnico_uuid }`) |
+| POST | `/admin/tickets/:uuid/avisar` | Admin | Avisar a un técnico: crea una invitación visible en su app (`{ tecnico_uuid, mensaje? }`) |
+| GET | `/admin/tickets/:uuid/avisos` | Admin | Estado de los avisos de ese ticket |
 | PATCH | `/admin/tickets/:uuid/cancelar` | Admin | Cancelar ticket |
 | PATCH | `/admin/tickets/:uuid/vincular-cliente` | Admin | Vincular/desvincular cliente (`{ cliente_uuid }` o `null`) |
 | GET | `/admin/tickets/:uuid/gastos` | Admin | Gastos del ticket (**solo lectura**) |
@@ -430,7 +449,9 @@ Las fechas de filtro son días de **America/Lima**. Como la base guarda UTC, el 
 | Método | Ruta | Acceso | Descripción |
 |---|---|---|---|
 | GET | `/tecnicos/mis-tickets` | Tecnico | Tickets asignados |
-| GET | `/tecnicos/tickets/:uuid` | Tecnico | Detalle de un ticket propio (404 si es de otro técnico) |
+| GET | `/tecnicos/avisos` | Tecnico | Avisos pendientes (ticket + mensaje), sin asignar |
+| GET | `/tecnicos/tickets/:uuid` | Tecnico | Detalle propio o de un ticket avisado; incluye `aviso_estado`, `aviso_mensaje` y `es_tuyo` |
+| PATCH | `/tecnicos/tickets/:uuid/aceptar` | Tecnico | Acepta un aviso; asigna solo si `tecnico_uuid` está vacío |
 | PATCH | `/tecnicos/tickets/:uuid/iniciar-servicio` | Tecnico | Marcar que el servicio ya empezó (`fecha_inicio_servicio`) |
 | PATCH | `/tecnicos/tickets/:uuid/atender` | Tecnico | Marcar atendido (`{ nota }`) |
 | GET | `/tecnicos/tickets/:uuid/gastos` | Tecnico | Listar gastos del ticket |
@@ -459,6 +480,17 @@ Al asignar o reasignar un ticket (`PATCH /admin/tickets/:uuid/asignar`) se avisa
 ```
 
 El cuerpo lleva **solo el código**: ni empresa, ni nombre del cliente, ni descripción, porque se ve en la pantalla bloqueada. El aviso de reasignación usa `tipo: "ticket_reasignado"` y la app abre la lista de tickets, no el detalle.
+
+`POST /admin/tickets/:uuid/avisar` avisa a **cualquier técnico activo**, tenga o no el ticket asignado. Guarda una fila en `ticket_avisos` (única por `ticket_uuid` + `tecnico_uuid`; si se repite el aviso vuelve a `pendiente`) con `mensaje` opcional de hasta 200 caracteres, y envía el push `tipo: "ticket_aviso"`, que abre directamente el detalle del ticket en la app. El push es secundario: si está apagado o el técnico no tiene dispositivos, el aviso queda registrado y responde **200** con `push_activo: false` / `dispositivos: 0`.
+
+El técnico ve esos avisos en `GET /tecnicos/avisos` y los acepta con `PATCH /tecnicos/tickets/:uuid/aceptar`. La aceptación corre en transacción con `SELECT ... FOR UPDATE`, primero sobre el ticket y después sobre el aviso (ese orden evita deadlocks cuando dos técnicos aceptan el mismo ticket):
+
+- Si el ticket está **sin técnico**, se asigna al que acepta (`estado = 'asignado'`, `fecha_asignacion = NOW()`) con un `UPDATE ... WHERE tecnico_uuid IS NULL AND estado = 'pendiente'`. Esa condición garantiza **una sola asignación** aunque varios técnicos acepten a la vez.
+- Si ya está asignado **al mismo técnico**, responde `asignado: true` + `ya_asignado: true` sin cambiar nada.
+- Si está asignado **a otro técnico**, responde `asignado: false` + `motivo: "ya_asignado_otro"`: puede consultarlo, pero **no se reasigna**.
+- Al aceptar, los demás avisos pendientes de ese ticket pasan a `cerrada`. No hay acción de rechazo: si el técnico no responde, el aviso sigue pendiente.
+
+`GET /admin/tickets/:uuid/avisos` devuelve `pendiente` / `aceptada` / `cerrada` por técnico para que el admin vea el resultado desde el modal **Avisar**.
 
 Cuando Expo responde `DeviceNotRegistered`, se pone `expo_push_token = NULL` en esa fila; la sesión sigue válida. La verificación de receipts queda como segunda iteración.
 
@@ -989,6 +1021,7 @@ Tablas:
 - `claves` — credenciales de empresas (`empresa`; `tipo` = `correo` con `usuario`/`password`, o `pc_anydesk` con `pc`, `pc_password`, `anydesk`, `anydesk_password`).
 - `claves_auditoria` — quién consultó o editó credenciales, con IP y user-agent.
 - `ticket_gastos` — costos que el técnico asignó a un ticket (`concepto`, `detalle`, `monto`). Interna: el cliente no la ve.
+- `ticket_avisos` — invitaciones del admin a un técnico (`ticket_uuid` + `tecnico_uuid` ÚNICOS, `mensaje`, `estado` = `pendiente` | `aceptada` | `cerrada`, `avisado_por`, `respondida_at`). Un técnico puede abrir el ticket avisado y aceptarlo; la asignación real sigue viviendo en `tickets.tecnico_uuid`.
 - `tickets` — solicitudes entrantes. Campos clave: `canal` (`whatsapp` | `correo` | `manual`), `contacto_origen`, `mensaje_externo_id` (**UNIQUE**), `estado` (`pendiente` | `asignado` | `en_servicio` | `atendido` | `cancelado`), `fecha_inicio_servicio` (sella `en_servicio`), `tecnico_uuid` (**FK** a `tecnicos.uuid`), `cliente_uuid` (**sin FK**, lo vincula el admin a mano) y `vinculado_por` / `vinculado_at`.
 - `whatsapp_conversaciones` — conversación pendiente del canal WhatsApp (`numero` PK, `mensaje_origen` UNIQUE, `intentos`). Se borra al crear el ticket.
 - `whatsapp_mensajes` — idempotencia del webhook (`mensaje_origen` PK, `numero`, `created_at`). Se purga a los `WHATSAPP_MENSAJES_DIAS`.
@@ -1007,7 +1040,11 @@ Estructura completa en `database/schema.sql` (incluye un usuario admin **solo pa
 mysql -u root -p nicksystemlocal < database/schema.sql
 ```
 
-**Base existente** — aplicar a mano los `ALTER TABLE` correspondientes. Cada cambio de código que toca el esquema debe reflejarse también en **`database/schema.sql`**, que es el esquema vigente para instalaciones nuevas.
+**Base existente** — aplicar a mano los `ALTER TABLE` correspondientes. Cada cambio de código que toca el esquema debe reflejarse también en **`database/schema.sql`**, que es el esquema vigente para instalaciones nuevas. Para los avisos hay un `CREATE TABLE` listo en `database/migrations/001_ticket_avisos.sql`:
+
+```bash
+mysql -u root -p nicksystemlocal < database/migrations/001_ticket_avisos.sql
+```
 
 ```bash
 mysql -u root -p nicksystemlocal -e "<SQL del cambio>"

@@ -29,6 +29,16 @@ export const construirPayloadReasignacion = ({ token, codigo, ticketUuid }) => (
   data: { tipo: 'ticket_reasignado', ticket_uuid: ticketUuid }
 });
 
+export const construirPayloadAviso = ({ token, codigo, asunto, mensaje, ticketUuid }) => ({
+  to: token,
+  title: 'Aviso de ticket',
+  body: mensaje || `Código ${codigo}: ${asunto}`,
+  channelId: 'tickets',
+  priority: 'high',
+  sound: 'default',
+  data: { tipo: 'ticket_aviso', ticket_uuid: ticketUuid }
+});
+
 const cabeceras = () => {
   const resultado = {
     'Content-Type': 'application/json',
@@ -149,4 +159,30 @@ export const notificarAsignacion = async ({
   }
 
   return { enviados };
+};
+
+export const notificarAvisoTecnico = async ({
+  ticketUuid,
+  codigo,
+  asunto,
+  tecnicoUuid,
+  mensaje = null
+}) => {
+  if (config.FF_PUSH !== 'enforce') {
+    return { enviados: 0, dispositivos: 0, pushActivo: false };
+  }
+
+  const tokens = await tokensDeTecnico(tecnicoUuid);
+  const mensajes = tokens.map((token) =>
+    construirPayloadAviso({ token, codigo, asunto, mensaje, ticketUuid })
+  );
+
+  const enviados = await enviarPush(mensajes);
+
+  bitacora(
+    'push',
+    `Aviso del ticket ${codigo} → técnico ${tecnicoUuid}: ${tokens.length} dispositivo(s) notificados.`
+  );
+
+  return { enviados, dispositivos: tokens.length, pushActivo: true };
 };

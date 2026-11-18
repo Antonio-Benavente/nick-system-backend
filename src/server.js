@@ -1,21 +1,13 @@
 import "./config/sentry.js";
 import "./config/logs.js";
-import cron from 'node-cron';
 import app from "./app.js";
 import pool from "./config/db.js";
 import { config } from "./config/env.js";
 import { logger } from "./config/logs.js";
 import { capturarExcepcion } from "./config/sentry.js";
-import {
-  limpiarConversacionesVencidas,
-  limpiarMensajesAntiguos
-} from "./services/whatsappConversacion.service.js";
-import { limpiarEventosAntiguos } from "./services/incomingEvents.service.js";
-import { limpiarIdempotenciaAntigua } from "./middlewares/idempotencia.middleware.js";
-import { purgarDispositivosRevocados } from "./services/dispositivos.service.js";
+import { iniciarLimpieza } from "./services/limpieza.service.js";
 import { iniciarWarmup } from "./services/warmup.service.js";
 
-const INTERVALO_LIMPIEZA_MINUTOS = 15;
 const APAGADO_MAXIMO_MS = 10000;
 const INTENTOS_ARRANQUE = 3;
 const ESPERA_ARRANQUE_MS = 2000;
@@ -43,57 +35,6 @@ const comprobarBaseDeDatosAlArrancar = async () => {
   }
 
   return false;
-};
-
-const iniciarLimpieza = () => {
-  const tarea = cron.schedule(`*/${INTERVALO_LIMPIEZA_MINUTOS} * * * *`, async () => {
-    try {
-      const borradas = await limpiarConversacionesVencidas();
-      if (borradas > 0) {
-        logger.info({ borradas }, 'Conversaciones de WhatsApp vencidas eliminadas');
-      }
-    } catch (error) {
-      logger.warn({ error: error.message }, 'Fallo limpiando conversaciones vencidas');
-    }
-
-    try {
-      const purgados = await limpiarMensajesAntiguos();
-      if (purgados > 0) {
-        logger.info({ purgados }, 'Mensajes de WhatsApp purgados');
-      }
-    } catch (error) {
-      logger.warn({ error: error.message }, 'Fallo purgando mensajes de WhatsApp');
-    }
-
-    try {
-      const eventos = await limpiarEventosAntiguos();
-      if (eventos > 0) {
-        logger.info({ eventos }, 'Eventos de webhook purgados');
-      }
-    } catch (error) {
-      logger.warn({ error: error.message }, 'Fallo purgando eventos de webhook');
-    }
-
-    try {
-      const claves = await limpiarIdempotenciaAntigua();
-      if (claves > 0) {
-        logger.info({ claves }, 'Claves de idempotencia purgadas');
-      }
-    } catch (error) {
-      logger.warn({ error: error.message }, 'Fallo purgando claves de idempotencia');
-    }
-
-    try {
-      const dispositivos = await purgarDispositivosRevocados();
-      if (dispositivos > 0) {
-        logger.info({ dispositivos }, 'Dispositivos revocados purgados');
-      }
-    } catch (error) {
-      logger.warn({ error: error.message }, 'Fallo purgando dispositivos revocados');
-    }
-  }, { timezone: config.ZONA_HORARIA });
-
-  return tarea;
 };
 
 async function startServer() {

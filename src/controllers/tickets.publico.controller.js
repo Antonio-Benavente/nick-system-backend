@@ -1,5 +1,9 @@
-import pool from '../config/db.js';
-import { REGEX_CODIGO_TICKET, registrarConformidad } from '../services/ticketService.js';
+import {
+  REGEX_CODIGO_TICKET,
+  obtenerSeguimientoPublico,
+  obtenerTicketParaConformidad,
+  registrarConformidad
+} from '../services/ticketService.js';
 import { bitacora } from '../services/bitacora.service.js';
 import emailService from '../services/email.service.js';
 import { urlSeguimiento } from '../services/ticketIngesta.service.js';
@@ -18,19 +22,9 @@ export const seguimientoPublico = async (req, res) => {
     throw abortar(404, 'Ticket no encontrado');
   }
 
-  const condicion = esUUID(identificador) ? 'uuid = ?' : 'codigo = ?';
+  const ticket = await obtenerSeguimientoPublico(identificador, esUUID(identificador));
 
-  const [filas] = await pool.query(
-    `SELECT uuid, codigo, asunto, estado, cliente_conforme, aprobado_por,
-            fecha_conformidad, motivo_no_conforme, created_at, fecha_asignacion,
-            fecha_inicio_servicio, fecha_cierre
-     FROM tickets WHERE ${condicion}`,
-    [identificador]
-  );
-
-  if (!filas.length) throw abortar(404, 'Ticket no encontrado');
-
-  const ticket = filas[0];
+  if (!ticket) throw abortar(404, 'Ticket no encontrado');
 
   res.set('Cache-Control', 'no-store');
   res.json({
@@ -62,14 +56,7 @@ export const registrarConformidadPublico = async (req, res) => {
     return res.status(codigo).json({ message });
   }
 
-  const [filas] = await pool.query(
-    `SELECT uuid, codigo, empresa_solicitante, nombre_solicitante, asunto,
-            cliente_conforme, aprobado_por, motivo_no_conforme, fecha_conformidad
-     FROM tickets WHERE uuid = ?`,
-    [req.params.uuid]
-  );
-
-  const ticket = filas[0];
+  const ticket = await obtenerTicketParaConformidad(req.params.uuid);
 
   bitacora(
     'publico',

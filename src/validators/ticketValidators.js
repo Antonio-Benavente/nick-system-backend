@@ -12,7 +12,8 @@ export const TICKET_LIMITS = {
   aprobador: 100,
   motivo: 500,
   concepto: 150,
-  detalle: 255
+  detalle: 255,
+  aviso: 200
 };
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -53,6 +54,11 @@ export const validarModalidad = (body = {}) => {
 };
 
 export const validarAsignacion = (body = {}) => validarUUID(body.tecnico_uuid, 'tecnico_uuid');
+
+export const validarAviso = (body = {}) => ({
+  tecnicoUuid: validarUUID(body.tecnico_uuid, 'tecnico_uuid'),
+  mensaje: texto(body.mensaje, 'El mensaje del aviso', TICKET_LIMITS.aviso, false)
+});
 
 export const validarAtencion = (body = {}) => {
   const nota = texto(body.nota, 'La nota del cierre', TICKET_LIMITS.nota, false);
