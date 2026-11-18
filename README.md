@@ -1040,10 +1040,10 @@ Estructura completa en `database/schema.sql` (incluye un usuario admin **solo pa
 mysql -u root -p nicksystemlocal < database/schema.sql
 ```
 
-**Base existente** — aplicar a mano los `ALTER TABLE` correspondientes. Cada cambio de código que toca el esquema debe reflejarse también en **`database/schema.sql`**, que es el esquema vigente para instalaciones nuevas. Para los avisos hay un `CREATE TABLE` listo en `database/migrations/001_ticket_avisos.sql`:
+**Base existente** — aplicar a mano los `ALTER TABLE` correspondientes. Cada cambio de código que toca el esquema debe reflejarse también en **`database/schema.sql`**, que es el esquema vigente para instalaciones nuevas. Para los avisos, copiar el `CREATE TABLE IF NOT EXISTS ticket_avisos (...)` desde `database/schema.sql` y ejecutarlo en la base existente:
 
 ```bash
-mysql -u root -p nicksystemlocal < database/migrations/001_ticket_avisos.sql
+mysql -u root -p nicksystemlocal -e "<CREATE TABLE de ticket_avisos copied from database/schema.sql>"
 ```
 
 ```bash
