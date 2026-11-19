@@ -27,6 +27,12 @@ export const esquemaNuevoTicket = z.object({
   nombre_solicitante: z.string().trim().min(2, 'El nombre es requerido').max(100),
   asunto: z.string().trim().min(1, 'El asunto es requerido').max(150),
   descripcion: z.string().trim().min(1, 'El problema es requerido').max(2000),
+  ubicacion: z.string().trim().min(1, 'La ubicación es requerida').max(150),
+  categoria_id: z.number().int().positive().optional().nullable(),
+  contacto_servicio_nombre: z.string().trim().max(100).optional(),
+  contacto_servicio_telefono: z.string().trim().max(30).optional(),
+  canal: z.enum(['whatsapp', 'correo']).optional(),
+  contacto_origen: z.string().trim().max(150).optional(),
   modalidad: z.enum(['presencial', 'remoto']).optional()
 });
 

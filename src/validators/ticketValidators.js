@@ -1,14 +1,26 @@
 import { ValidationError } from './validators.js';
 
-export const ESTADOS_TICKET = ['pendiente', 'asignado', 'en_servicio', 'atendido', 'cancelado'];
+export const ESTADOS_TICKET = [
+  'pendiente',
+  'asignado',
+  'en_servicio',
+  'esperando_cliente',
+  'atendido',
+  'cancelado'
+];
 export const MODALIDADES_TICKET = ['presencial', 'remoto'];
+export const CANALES_TICKET = ['whatsapp', 'correo'];
 
 export const TICKET_LIMITS = {
   empresa: 150,
   nombre: 100,
   asunto: 150,
   descripcion: 2000,
+  ubicacion: 150,
+  contactoServicio: 100,
+  telefono: 30,
   nota: 1000,
+  solucion: 5000,
   aprobador: 100,
   motivo: 500,
   concepto: 150,
@@ -38,13 +50,43 @@ const texto = (valor, campo, max, requerido = true) => {
   return limpio;
 };
 
-export const validarNuevoTicket = (body = {}) => ({
-  empresa: texto(body.empresa_solicitante, 'La empresa', TICKET_LIMITS.empresa),
-  nombre: texto(body.nombre_solicitante, 'El nombre', TICKET_LIMITS.nombre),
-  asunto: texto(body.asunto, 'El asunto', TICKET_LIMITS.asunto),
-  descripcion: texto(body.descripcion, 'El problema', TICKET_LIMITS.descripcion),
-  modalidad: MODALIDADES_TICKET.includes(body.modalidad) ? body.modalidad : 'presencial'
-});
+export const validarNuevoTicket = (body = {}) => {
+  if (body.canal !== undefined && body.canal !== null && !CANALES_TICKET.includes(body.canal)) {
+    throw new ValidationError('canal debe ser "whatsapp" o "correo"', 'canal');
+  }
+
+  const canal = body.canal || 'correo';
+  const contactoOrigen = texto(body.contacto_origen, 'El contacto de origen', TICKET_LIMITS.empresa, false);
+
+  // Un ticket por WhatsApp sin número no se puede rastrear ni responder.
+  if (canal === 'whatsapp' && !contactoOrigen) {
+    throw new ValidationError('El número de contacto es requerido cuando el canal es WhatsApp');
+  }
+
+  return {
+    empresa: texto(body.empresa_solicitante, 'La empresa', TICKET_LIMITS.empresa),
+    nombre: texto(body.nombre_solicitante, 'El nombre', TICKET_LIMITS.nombre),
+    asunto: texto(body.asunto, 'El asunto', TICKET_LIMITS.asunto),
+    descripcion: texto(body.descripcion, 'El problema', TICKET_LIMITS.descripcion),
+    ubicacion: texto(body.ubicacion, 'La ubicación', TICKET_LIMITS.ubicacion),
+    categoriaId: Number.isInteger(body.categoria_id) ? body.categoria_id : null,
+    contactoServicioNombre: texto(
+      body.contacto_servicio_nombre,
+      'El contacto en sitio',
+      TICKET_LIMITS.contactoServicio,
+      false
+    ),
+    contactoServicioTelefono: texto(
+      body.contacto_servicio_telefono,
+      'El teléfono del contacto en sitio',
+      TICKET_LIMITS.telefono,
+      false
+    ),
+    canal,
+    contactoOrigen,
+    modalidad: MODALIDADES_TICKET.includes(body.modalidad) ? body.modalidad : 'presencial'
+  };
+};
 
 export const validarModalidad = (body = {}) => {
   if (!MODALIDADES_TICKET.includes(body.modalidad)) {
@@ -69,7 +111,46 @@ export const validarAtencion = (body = {}) => {
     );
   }
 
-  return nota;
+  return {
+    nota,
+    solucion: texto(body.solucion, 'La solución', TICKET_LIMITS.solucion, false)
+  };
+};
+
+/** El motivo es obligatorio al cancelar (también lo exige un CHECK en la BD). */
+export const validarCancelacion = (body = {}) =>
+  texto(body.motivo_cancelacion, 'El motivo de cancelación', TICKET_LIMITS.motivo);
+
+/** Edición de datos del ticket desde el drawer del admin. */
+export const validarDatosTicket = (body = {}) => {
+  const datos = {
+    ubicacion: texto(body.ubicacion, 'La ubicación', TICKET_LIMITS.ubicacion),
+    contactoServicioNombre: texto(
+      body.contacto_servicio_nombre,
+      'El contacto en sitio',
+      TICKET_LIMITS.contactoServicio,
+      false
+    ),
+    contactoServicioTelefono: texto(
+      body.contacto_servicio_telefono,
+      'El teléfono del contacto en sitio',
+      TICKET_LIMITS.telefono,
+      false
+    ),
+    solucion: texto(body.solucion, 'La solución', TICKET_LIMITS.solucion, false)
+  };
+
+  if (body.categoria_id !== undefined) {
+    if (body.categoria_id === null || body.categoria_id === '') {
+      datos.categoriaId = null;
+    } else if (Number.isInteger(body.categoria_id)) {
+      datos.categoriaId = body.categoria_id;
+    } else {
+      throw new ValidationError('categoria_id no es válido');
+    }
+  }
+
+  return datos;
 };
 
 export const validarConformidad = (body = {}) => {

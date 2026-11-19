@@ -29,13 +29,60 @@ export const REGEX_CODIGO_TICKET =
   /^TK-[A-Z0-9]{2}(?:[0-9A-HJKMNP-TV-Z]{5}|[0-9]{4})$/i;
 
 export const COLUMNAS_TICKET = `uuid, codigo, empresa_solicitante, nombre_solicitante,
-  asunto, descripcion, estado, cliente_conforme, aprobado_por, fecha_conformidad, motivo_no_conforme,
-  tecnico_uuid, cliente_uuid, canal, modalidad, contacto_origen, nota_cierre,
-  fecha_asignacion, fecha_inicio_servicio, fecha_cierre, created_at, updated_at`;
+  asunto, descripcion, categoria_id, ubicacion, contacto_servicio_nombre, contacto_servicio_telefono,
+  estado, cliente_conforme, aprobado_por, fecha_conformidad, motivo_no_conforme,
+  tecnico_uuid, cliente_uuid, canal, modalidad, contacto_origen, mensaje_externo_id,
+  nota_cierre, solucion, motivo_cancelacion,
+  fecha_asignacion, fecha_inicio_servicio, fecha_primera_respuesta, fecha_cierre,
+  reporte_id, created_at, updated_at`;
 
 const COLUMNAS_TICKET_T = COLUMNAS_TICKET.split(',')
   .map((columna) => `t.${columna.trim()}`)
   .join(', ');
+
+const TIPOS_EVENTO = {
+  asignar: 'asignado',
+  iniciar_servicio: 'en_servicio',
+  esperar_cliente: 'esperando_cliente',
+  reanudar: 'reanudado',
+  atender: 'atendido',
+  cancelar: 'cancelado'
+};
+
+/**
+ * Cronología visible en el drawer del admin. No bloquea la operación principal:
+ * si falla el insert se avisa por consola, igual que la bitácora.
+ */
+export const registrarEvento = async (ticketUuid, tipo, detalle = null, usuarioUuid = null) => {
+  try {
+    await pool.query(
+      'INSERT INTO ticket_eventos (ticket_uuid, usuario_uuid, tipo, detalle) VALUES (?, ?, ?, ?)',
+      [ticketUuid, usuarioUuid || null, tipo, detalle || null]
+    );
+  } catch (error) {
+    console.warn(`[ticket_eventos] No se pudo registrar "${tipo}" en ${ticketUuid}: ${error.message}`);
+  }
+};
+
+export const listarEventos = async (ticketUuid) => {
+  const [filas] = await pool.query(
+    `SELECT id, usuario_uuid, tipo, detalle, fecha
+     FROM ticket_eventos WHERE ticket_uuid = ? ORDER BY fecha ASC, id ASC`,
+    [ticketUuid]
+  );
+
+  return filas;
+};
+
+export const listarAdjuntos = async (ticketUuid) => {
+  const [filas] = await pool.query(
+    `SELECT uuid, url, tipo, created_at
+     FROM ticket_adjuntos WHERE ticket_uuid = ? ORDER BY created_at ASC, id ASC`,
+    [ticketUuid]
+  );
+
+  return filas;
+};
 
 export const ticketPorMensajeExterno = async (mensajeExternoId) => {
   if (!mensajeExternoId) return null;
@@ -70,8 +117,10 @@ export const ultimosTicketsPorContacto = async (contacto, { limite = 1, dias = 9
 const TRANSICIONES = {
   asignar: { desde: ['pendiente', 'asignado'], hasta: 'asignado' },
   iniciar_servicio: { desde: ['asignado'], hasta: 'en_servicio' },
+  esperar_cliente: { desde: ['asignado', 'en_servicio'], hasta: 'esperando_cliente' },
+  reanudar: { desde: ['esperando_cliente'], hasta: 'en_servicio' },
   atender: { desde: ['en_servicio'], hasta: 'atendido' },
-  cancelar: { desde: ['pendiente', 'asignado', 'en_servicio'], hasta: 'cancelado' }
+  cancelar: { desde: ['pendiente', 'asignado', 'en_servicio', 'esperando_cliente'], hasta: 'cancelado' }
 };
 
 const existeMensajeExterno = async (mensajeExternoId) => {
@@ -89,7 +138,13 @@ export const crearTicket = async ({
   nombre,
   asunto,
   descripcion,
-  canal = 'manual',
+  // Los tickets entrantes (WhatsApp/correo) no traen dirección: el admin la
+  // completa después desde el drawer. Nunca se guarda NULL (la columna es NOT NULL).
+  ubicacion = 'Sin ubicación',
+  categoriaId = null,
+  contactoServicioNombre = null,
+  contactoServicioTelefono = null,
+  canal = 'correo',
   modalidad = 'presencial',
   contactoOrigen = null,
   mensajeExternoId = null
@@ -102,11 +157,18 @@ export const crearTicket = async ({
     try {
       await pool.query(
         `INSERT INTO tickets
-          (uuid, codigo, empresa_solicitante, nombre_solicitante, asunto, descripcion, canal, modalidad, contacto_origen, mensaje_externo_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [uuid, codigo, empresa, nombre, asunto, descripcion, canal, modalidad, contactoOrigen, mensajeExternoId]
+          (uuid, codigo, empresa_solicitante, nombre_solicitante, asunto, descripcion,
+           categoria_id, ubicacion, contacto_servicio_nombre, contacto_servicio_telefono,
+           canal, modalidad, contacto_origen, mensaje_externo_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          uuid, codigo, empresa, nombre, asunto, descripcion,
+          categoriaId, ubicacion, contactoServicioNombre, contactoServicioTelefono,
+          canal, modalidad, contactoOrigen, mensajeExternoId
+        ]
       );
-      return { uuid, codigo };
+      await registrarEvento(uuid, 'creado', `Ticket ${codigo} creado desde ${canal}`);
+      return { uuid, codigo, ubicacion };
     } catch (error) {
       const colisionDeCodigo =
         error?.code === 'ER_DUP_ENTRY' && !(await existeMensajeExterno(mensajeExternoId));
@@ -119,7 +181,15 @@ export const crearTicket = async ({
 export const aplicarTransicion = async (
   accion,
   uuid,
-  { tecnicoUuid = null, propietarioUuid = null, nota = null } = {}
+  {
+    tecnicoUuid = null,
+    propietarioUuid = null,
+    nota = null,
+    solucion = null,
+    motivoCancelacion = null,
+    detalle = null,
+    usuarioUuid = null
+  } = {}
 ) => {
   const { desde, hasta } = TRANSICIONES[accion];
 
@@ -129,12 +199,23 @@ export const aplicarTransicion = async (
     asignaciones.push('tecnico_uuid = ?', 'fecha_asignacion = NOW()');
     valores.push(tecnicoUuid);
   }
-  if (accion === 'iniciar_servicio') {
-    asignaciones.push('fecha_inicio_servicio = NOW()');
+  if (accion === 'iniciar_servicio' || accion === 'reanudar') {
+    asignaciones.push('fecha_inicio_servicio = COALESCE(fecha_inicio_servicio, NOW())');
+  }
+  if (['iniciar_servicio', 'esperar_cliente', 'reanudar'].includes(accion)) {
+    asignaciones.push('fecha_primera_respuesta = COALESCE(fecha_primera_respuesta, NOW())');
   }
   if (accion === 'atender') {
     asignaciones.push('nota_cierre = ?');
     valores.push(nota);
+    if (solucion) {
+      asignaciones.push('solucion = ?');
+      valores.push(solucion);
+    }
+  }
+  if (accion === 'cancelar') {
+    asignaciones.push('motivo_cancelacion = ?');
+    valores.push(motivoCancelacion);
   }
   if (accion === 'atender' || accion === 'cancelar') {
     asignaciones.push('fecha_cierre = NOW()');
@@ -151,7 +232,15 @@ export const aplicarTransicion = async (
     `UPDATE tickets SET ${asignaciones.join(', ')} WHERE ${condiciones.join(' AND ')}`,
     [...valores, ...parametros]
   );
-  if (resultado.affectedRows === 1) return 'ok';
+  if (resultado.affectedRows === 1) {
+    await registrarEvento(
+      uuid,
+      TIPOS_EVENTO[accion] || accion,
+      detalle || solucion || nota || motivoCancelacion,
+      usuarioUuid
+    );
+    return 'ok';
+  }
 
   const [existentes] = await pool.query(
     propietarioUuid
@@ -171,6 +260,36 @@ export const actualizarModalidad = async (uuid, modalidad) => {
   return resultado.affectedRows === 1;
 };
 
+/** Edición de los datos del ticket desde el drawer del admin. */
+export const actualizarDatosTicket = async (uuid, datos = {}) => {
+  const asignaciones = [];
+  const valores = [];
+
+  const campos = [
+    ['ubicacion', datos.ubicacion],
+    ['categoria_id', datos.categoriaId],
+    ['contacto_servicio_nombre', datos.contactoServicioNombre],
+    ['contacto_servicio_telefono', datos.contactoServicioTelefono],
+    ['solucion', datos.solucion]
+  ];
+
+  for (const [campo, valor] of campos) {
+    if (valor !== undefined) {
+      asignaciones.push(`${campo} = ?`);
+      valores.push(valor);
+    }
+  }
+
+  if (!asignaciones.length) return false;
+
+  const [resultado] = await pool.query(
+    `UPDATE tickets SET ${asignaciones.join(', ')} WHERE uuid = ?`,
+    [...valores, uuid]
+  );
+
+  return resultado.affectedRows === 1;
+};
+
 export const registrarConformidad = async (uuid, { conforme, aprobadoPor, motivo }) => {
   const [resultado] = await pool.query(
     `UPDATE tickets
@@ -181,7 +300,21 @@ export const registrarConformidad = async (uuid, { conforme, aprobadoPor, motivo
     [conforme ? 'conforme' : 'no_conforme', aprobadoPor, conforme ? null : motivo, uuid]
   );
 
-  if (resultado.affectedRows === 1) return 'ok';
+  if (resultado.affectedRows === 1) {
+    // Si ya se generó el reporte, mantiene copiada la conformidad del ticket.
+    await pool.query(
+      `UPDATE reportes
+       SET cliente_conforme = ?, aprobado_por = ?, fecha_conformidad = NOW(), motivo_no_conforme = ?
+       WHERE uuid = (SELECT reporte_id FROM tickets WHERE uuid = ?)`,
+      [conforme ? 'conforme' : 'no_conforme', aprobadoPor, conforme ? null : motivo, uuid]
+    );
+    await registrarEvento(
+      uuid,
+      'conformidad',
+      conforme ? `Conforme registrado por ${aprobadoPor}` : `No conforme: ${motivo}`
+    );
+    return 'ok';
+  }
 
   const [existentes] = await pool.query(
     'SELECT estado, cliente_conforme FROM tickets WHERE uuid = ?',
@@ -198,9 +331,13 @@ export const vincularCliente = async (ticketUuid, clienteUuid, adminUuid) => {
   const [resultado] = await pool.query(
     `UPDATE tickets
      SET cliente_uuid = ?, vinculado_por = ?, vinculado_at = NOW()
-     WHERE uuid = ? AND estado IN ('pendiente', 'asignado', 'en_servicio')`,
+     WHERE uuid = ? AND estado IN ('pendiente', 'asignado', 'en_servicio', 'esperando_cliente')`,
     [clienteUuid, adminUuid, ticketUuid]
   );
+
+  if (resultado.affectedRows === 1) {
+    await registrarEvento(ticketUuid, 'cliente_vinculado', `Cliente ${clienteUuid} vinculado`, adminUuid);
+  }
 
   return resultado.affectedRows === 1;
 };
@@ -212,6 +349,10 @@ export const desvincularCliente = async (ticketUuid) => {
      WHERE uuid = ? AND cliente_uuid IS NOT NULL`,
     [ticketUuid]
   );
+
+  if (resultado.affectedRows === 1) {
+    await registrarEvento(ticketUuid, 'cliente_desvinculado', 'Cliente desvinculado');
+  }
 
   return resultado.affectedRows === 1;
 };
@@ -312,7 +453,7 @@ export const listarTicketsDeTecnico = async (tecnicoUuid, paginacion) => {
   const [tickets] = await pool.query(
     `SELECT ${COLUMNAS_TICKET} FROM tickets
      WHERE tecnico_uuid = ?
-     ORDER BY FIELD(estado, 'en_servicio', 'asignado', 'pendiente', 'atendido', 'cancelado'), created_at DESC
+     ORDER BY FIELD(estado, 'en_servicio', 'esperando_cliente', 'asignado', 'pendiente', 'atendido', 'cancelado'), created_at DESC
      LIMIT ? OFFSET ?`,
     [tecnicoUuid, paginacion.limite, paginacion.offset]
   );

@@ -110,6 +110,7 @@ class EmailService {
     descripcion,
     canal = 'correo',
     contactoOrigen,
+    ubicacion,
     codigo,
     url,
     fecha
@@ -132,6 +133,7 @@ class EmailService {
         descripcion,
         canal,
         contactoOrigen,
+        ubicacion,
         codigo,
         url,
         fecha
@@ -327,7 +329,7 @@ class EmailService {
     `;
   }
 
-  generarHTMLNotificacionTicket({ empresa, nombre, asunto, descripcion, canal, contactoOrigen, codigo, url, fecha }) {
+  generarHTMLNotificacionTicket({ empresa, nombre, asunto, descripcion, canal, contactoOrigen, ubicacion, codigo, url, fecha }) {
     const multlinea = (valor) => this.escapeHtml(valor).replace(/\r?\n/g, '<br>');
 
     return `
@@ -361,6 +363,10 @@ class EmailService {
               <tr style="border-bottom: 1px solid #e2e8f0;">
                 <td style="padding: 10px 0; color: #475569; font-weight: 600; vertical-align: top;">📧 Contacto:</td>
                 <td style="padding: 10px 0; color: #1e293b; word-break: break-all;">${this.escapeHtml(contactoOrigen) || 'No especificado'}</td>
+              </tr>
+              <tr style="border-bottom: 1px solid #e2e8f0;">
+                <td style="padding: 10px 0; color: #475569; font-weight: 600; vertical-align: top;">📍 Ubicación:</td>
+                <td style="padding: 10px 0; color: #1e293b;">${this.escapeHtml(ubicacion) || 'Sin ubicación'}</td>
               </tr>
               <tr>
                 <td style="padding: 10px 0; color: #475569; font-weight: 600; vertical-align: top;">📌 Asunto:</td>

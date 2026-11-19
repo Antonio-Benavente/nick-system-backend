@@ -2,6 +2,7 @@ import { Router } from 'express';
 import {
   getMiPerfil,
   getMisReportes,
+  getReporteByUuid,
   getMisEstadisticas,
   createReporte,
   updateReporte,
@@ -11,9 +12,11 @@ import {
   aceptarAvisoTecnicoController,
   atenderTecnico,
   detalleTecnico,
+  esperarClienteTecnico,
   iniciarServicioTecnico,
   listarAvisosTecnico,
-  misTickets
+  misTickets,
+  reanudarTecnico
 } from '../controllers/tickets.tecnico.controller.js';
 import {
   eliminarPush,
@@ -40,6 +43,8 @@ router.get('/mi-perfil', asyncHandler(getMiPerfil));
 
 router.get('/mis-reportes', asyncHandler(getMisReportes));
 
+router.get('/reportes/:uuid', asyncHandler(getReporteByUuid));
+
 router.post('/reportes', idempotencia, asyncHandler(createReporte));
 
 router.put('/reportes/:reporteUUID', asyncHandler(updateReporte));
@@ -61,6 +66,10 @@ router.patch('/tickets/:uuid/aceptar', idempotencia, asyncHandler(aceptarAvisoTe
 router.patch('/tickets/:uuid/iniciar-servicio', idempotencia, asyncHandler(iniciarServicioTecnico));
 
 router.patch('/tickets/:uuid/atender', idempotencia, asyncHandler(atenderTecnico));
+
+router.patch('/tickets/:uuid/esperar-cliente', idempotencia, asyncHandler(esperarClienteTecnico));
+
+router.patch('/tickets/:uuid/reanudar', idempotencia, asyncHandler(reanudarTecnico));
 
 router.post('/dispositivos/push', asyncHandler(registrarPush));
 

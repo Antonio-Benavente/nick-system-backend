@@ -37,7 +37,7 @@ export const listarAvisosDeTecnico = async (tecnicoUuid) => {
      INNER JOIN tickets t ON t.uuid = a.ticket_uuid
      WHERE a.tecnico_uuid = ?
        AND a.estado = 'pendiente'
-       AND t.estado IN ('pendiente', 'asignado', 'en_servicio')
+       AND t.estado IN ('pendiente', 'asignado', 'en_servicio', 'esperando_cliente')
      ORDER BY a.created_at DESC`,
     [tecnicoUuid]
   );

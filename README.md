@@ -92,7 +92,7 @@ La versión de Node está fijada en **24 LTS** (`.nvmrc`, `.node-version`, `engi
 | `SENTRY_TRACES_SAMPLE_RATE` | Muestreo de trazas de Sentry (default `0.1`) |
 | `FF_INCOMING_EVENTS` | `off`, `observe` o `enforce`. Deduplicación técnica de webhooks (default `observe`) |
 | `FF_ZOD_VALIDATION` | `off`, `observe` o `enforce`. Zod valida y registra; en `enforce` rechaza (default `observe`) |
-| `FF_IDEMPOTENCY` | `off` o `enforce`. Activa el header `Idempotency-Key` (default `off`) |
+| `FF_IDEMPOTENCY` | `off` o `enforce`. Activa el header `Idempotency-Key` (default `off` si la variable no existe; en Render/producción: `enforce`) |
 | `FF_PUSH` | `off` o `enforce`. Envío de notificaciones push de la app de técnicos (default `off`). Con `off` no se llama a Expo |
 | `EXPO_ACCESS_TOKEN` | Opcional. Token de acceso de Expo para el envío de push. Sin él Expo acepta el envío sin autenticación |
 | `APP_TECNICOS_VERSION_MINIMA` | Versión mínima aceptada por la app Android, formato `1.2.3` (default `1.0.0`) |
@@ -261,7 +261,7 @@ no pasan por el middleware. Los guards de rol no cambian.
 | `incoming_events` | Webhooks | Procesar dos veces el mismo evento entregado |
 | `idempotency_keys` + `Idempotency-Key` | Endpoints mutantes | Repetir una escritura por reintento del cliente |
 
-`FF_INCOMING_EVENTS=observe` registra el evento y deja pasar; `enforce` omite los ya procesados. `FF_IDEMPOTENCY=enforce` activa la clave en crear ticket, conformidad pública, evidencias, transiciones y alta de gastos. Sin tabla (despliegue previo a la migración) ambos mecanismos degradan y dejan pasar la petición.
+`FF_INCOMING_EVENTS=observe` registra el evento y deja pasar; `enforce` omite los ya procesados. `FF_IDEMPOTENCY=enforce` activa la clave en crear ticket, conformidad pública, evidencias, transiciones y alta de gastos. Render usa `enforce` en producción para que las `Idempotency-Key` enviadas por la app de técnicos tengan efecto; el default del código sigue siendo `off` cuando la variable no está definida. Sin tabla (despliegue previo a la migración) ambos mecanismos degradan y dejan pasar la petición.
 
 ### Cifrado de credenciales (`claves`)
 
@@ -368,8 +368,9 @@ Esto evita el problema original (reportes con categorías que no existen en `cat
 |---|---|---|
 | GET | `/tecnicos/mi-perfil` | Perfil del técnico |
 | GET | `/tecnicos/mis-reportes` | Listar mis reportes |
+| GET | `/tecnicos/reportes/:uuid` | Detalle de un reporte activo propio (misma forma que un elemento de `/mis-reportes`; 404 si es ajeno o no existe) |
 | GET | `/tecnicos/mis-estadisticas` | Estadísticas propias |
-| POST | `/tecnicos/reportes` | Crear nuevo reporte (si la categoría no existe, **se crea automáticamente**) |
+| POST | `/tecnicos/reportes` | Crear nuevo reporte (si la categoría no existe, **se crea automáticamente**). Enviar `ticket_uuid` para vincularlo; los datos del ticket se usan como origen |
 | PUT | `/tecnicos/reportes/:reporteUUID` | Editar mi reporte |
 | POST | `/tecnicos/reportes/:reporteUUID/reenviar` | Reabrir y re-notificar: si estaba `no_conforme` vuelve a `por_confirmar` (limpia `aprobado_por`) y manda el correo |
 | GET | `/tecnicos/clientes` | Listar clientes (para asignar reporte) |
@@ -377,9 +378,11 @@ Esto evita el problema original (reportes con categorías que no existen en `cat
 | GET | `/tecnicos/avisos` | Avisos pendientes de otros tickets |
 | PATCH | `/tecnicos/tickets/:uuid/aceptar` | Aceptar un aviso (asigna solo si el ticket está sin técnico) |
 | PATCH | `/tecnicos/tickets/:uuid/iniciar-servicio` | Poner en proceso |
-| PATCH | `/tecnicos/tickets/:uuid/atender` | Marcar atendido (nota opcional) |
+| PATCH | `/tecnicos/tickets/:uuid/atender` | Marcar atendido (`{ nota, solucion? }`; la nota es obligatoria) |
+| PATCH | `/tecnicos/tickets/:uuid/esperar-cliente` | Dejar el ticket a la espera de respuesta del cliente |
+| PATCH | `/tecnicos/tickets/:uuid/reanudar` | Volver a `en_servicio` tras la respuesta del cliente |
 
-> **El técnico no marca la conformidad.** `POST /tecnicos/reportes` ignora `cliente_conforme` y `aprobado_por` y siempre guarda `por_confirmar`; `PUT /tecnicos/reportes/:reporteUUID` los descarta del body. La conformidad solo la registra el cliente en `PATCH /clientes/reportes/:uuid/conformidad`.
+> **El técnico no marca la conformidad.** `POST /tecnicos/reportes` ignora `cliente_conforme` y `aprobado_por`: guarda `por_confirmar`, o copia la conformidad ya registrada en el ticket si se creó con `ticket_uuid`. `PUT /tecnicos/reportes/:reporteUUID` los descarta del body. La conformidad solo la registra el cliente en `PATCH /clientes/reportes/:uuid/conformidad`.
 >
 > **Reabrir un reporte rechazado** es la única excepción: `POST /tecnicos/reportes/:reporteUUID/reenviar` pone un reporte `no_conforme` de vuelta en `por_confirmar`, limpia `aprobado_por` y envía la notificación al cliente. El técnico reabre la revisión, nunca la aprueba.
 
@@ -433,12 +436,22 @@ Autorización: además de autenticado, el usuario debe ser propietario del repor
 | GET | `/admin/tickets` | Admin | Listar tickets |
 | POST | `/admin/tickets` | Admin | Crear ticket manual |
 | GET | `/admin/tickets/:uuid` | Admin | Detalle de ticket |
+| PATCH | `/admin/tickets/:uuid/datos` | Admin | Editar ubicación, categoría, contacto en sitio y solución |
+| PATCH | `/admin/tickets/:uuid/modalidad` | Admin | Cambiar modalidad |
 | PATCH | `/admin/tickets/:uuid/asignar` | Admin | Asignar técnico (`{ tecnico_uuid }`) |
 | POST | `/admin/tickets/:uuid/avisar` | Admin | Avisar a un técnico: crea una invitación visible en su app (`{ tecnico_uuid, mensaje? }`) |
 | GET | `/admin/tickets/:uuid/avisos` | Admin | Estado de los avisos de ese ticket |
-| PATCH | `/admin/tickets/:uuid/cancelar` | Admin | Cancelar ticket |
+| PATCH | `/admin/tickets/:uuid/esperar-cliente` | Admin | Dejar el ticket a la espera de respuesta del cliente |
+| PATCH | `/admin/tickets/:uuid/reanudar` | Admin | Volver a `en_servicio` tras la respuesta del cliente |
+| PATCH | `/admin/tickets/:uuid/cancelar` | Admin | Cancelar ticket (`{ motivo_cancelacion }`, obligatorio) |
 | PATCH | `/admin/tickets/:uuid/vincular-cliente` | Admin | Vincular/desvincular cliente (`{ cliente_uuid }` o `null`) |
+| GET | `/admin/tickets/:uuid/eventos` | Admin | Cronología del ticket para el drawer |
+| GET | `/admin/tickets/:uuid/adjuntos` | Admin | Adjuntos entrantes del ticket |
 | GET | `/admin/tickets/:uuid/gastos` | Admin | Gastos del ticket (**solo lectura**) |
+
+`POST /admin/tickets` exige `empresa_solicitante`, `nombre_solicitante`, `asunto`, `descripcion` (el mensaje original) y `ubicacion` (dirección completa). Opcionales: `categoria_id` (debe existir y estar activa), `contacto_servicio_nombre`, `contacto_servicio_telefono`, `canal` (`whatsapp` requiere `contacto_origen`; por defecto `correo`) y `modalidad`. El `codigo` se genera con HMAC; no se envía.
+
+El reporte **no se genera al cerrar el ticket**. Desde la app se crea con `POST /tecnicos/reportes` enviando `ticket_uuid`: el ticket debe estar `atendido`, tener cliente vinculado por el admin y no tener reporte previo. El vínculo queda en `reportes.ticket_id` y `tickets.reporte_id`.
 
 Filtros de `GET /admin/tickets`: `estado`, `tecnico_uuid`, `cliente_uuid`, `sin_cliente=true`, `empresa`, `fecha_desde`, `fecha_hasta`, `cierre_desde`, `cierre_hasta`.
 
@@ -511,15 +524,15 @@ Responde `{ version_minima, url_descarga }` leyendo `APP_TECNICOS_VERSION_MINIMA
 ### Estados del ticket
 
 ```
-pendiente → asignado → en_servicio → atendido
+pendiente → asignado → en_servicio ⇄ esperando_cliente → atendido
      ↘          ↘            ↘
                       cancelado
 ```
 
-- `en_servicio` — **el técnico ya inició el servicio**. Sella `tickets.fecha_inicio_servicio` y aparece como cuarto hito en el seguimiento público.
-- No hay un estado intermedio tipo "tomo el ticket, lo voy a mirar": si a un técnico se le asigna un ticket, lo tiene que hacer.
-- **Marcar el inicio del servicio es obligatorio**: `atender` solo acepta `en_servicio`. Un `atender` desde `asignado` responde **409**, aunque el botón esté oculto en la interfaz. El único camino a `atendido` es pasando por `en_servicio`.
-- `cancelado` se puede aplicar desde los tres estados no cerrados.
+- `en_servicio` — **el técnico ya inició el servicio**. Sella `tickets.fecha_inicio_servicio` y `fecha_primera_respuesta` (si aún no estaba) y aparece como cuarto hito en el seguimiento público.
+- `esperando_cliente` — el trabajo está detenido a la espera de que el cliente responda. `reanudar` vuelve a `en_servicio` sin borrar `fecha_inicio_servicio`.
+- **Marcar el inicio del servicio sigue siendo obligatorio**: `atender` solo acepta `en_servicio`. Un `atender` desde `asignado` o `esperando_cliente` responde **409**; hay que `reanudar` primero. El único camino a `atendido` es pasando por `en_servicio`.
+- `cancelado` se puede aplicar desde los cuatro estados no cerrados y **exige `motivo_cancelacion`** (lo valida `validarCancelacion` y lo confirma un `CHECK` en la BD).
 - **La nota de cierre es obligatoria** (`validarAtencion`): sin ella, o solo con espacios, devuelve 400 con *"Describe qué se hizo para poder cerrar el ticket: el cliente lo lee al confirmar el servicio"*. Es lo único que queda escrito del trabajo y lo lee el cliente al confirmar, así que no puede quedar en `NULL`. La interfaz marca el textarea como `required` y deshabilita el botón mientras esté vacío.
 
 #### Si cambias un estado, toca estos sitios
@@ -538,6 +551,7 @@ Para añadir:
 5. `ESTADOS` en `estados.ts` del frontend (badge, filtro del admin y descripción del portal público).
 6. `TicketEstado` en `core/types/index.ts`.
 7. `COLUMNAS_TICKET` y el `SELECT` de `seguimientoPublico` si hay fecha nueva.
+8. `TIPOS_EVENTO` en `ticketService.js` para que la cronología del drawer del admin muestre el nuevo estado.
 
 Para quitar: además de lo anterior, **mover primero las filas** que usen el valor
 (`UPDATE tickets SET estado = 'asignado' WHERE estado = 'en_proceso'`), porque el
@@ -1016,13 +1030,16 @@ Tablas:
 - `tecnicos` — información de técnicos.
 - `clientes` — información de clientes.
 - `categorias` — categorías de servicios.
-- `reportes` — reportes de servicios técnicos (identificados por UUID).
+- `reportes` — reportes de servicios técnicos (identificados por UUID). Guarda `ticket_id` (UNIQUE, nullable) y la copia de la conformidad del ticket (`fecha_conformidad`, `motivo_no_conforme`).
 - `reporte_evidencias` — evidencias (imágenes, videos, documentos).
 - `claves` — credenciales de empresas (`empresa`; `tipo` = `correo` con `usuario`/`password`, o `pc_anydesk` con `pc`, `pc_password`, `anydesk`, `anydesk_password`).
 - `claves_auditoria` — quién consultó o editó credenciales, con IP y user-agent.
 - `ticket_gastos` — costos que el técnico asignó a un ticket (`concepto`, `detalle`, `monto`). Interna: el cliente no la ve.
 - `ticket_avisos` — invitaciones del admin a un técnico (`ticket_uuid` + `tecnico_uuid` ÚNICOS, `mensaje`, `estado` = `pendiente` | `aceptada` | `cerrada`, `avisado_por`, `respondida_at`). Un técnico puede abrir el ticket avisado y aceptarlo; la asignación real sigue viviendo en `tickets.tecnico_uuid`.
-- `tickets` — solicitudes entrantes. Campos clave: `canal` (`whatsapp` | `correo` | `manual`), `contacto_origen`, `mensaje_externo_id` (**UNIQUE**), `estado` (`pendiente` | `asignado` | `en_servicio` | `atendido` | `cancelado`), `fecha_inicio_servicio` (sella `en_servicio`), `tecnico_uuid` (**FK** a `tecnicos.uuid`), `cliente_uuid` (**sin FK**, lo vincula el admin a mano) y `vinculado_por` / `vinculado_at`.
+- `ticket_eventos` — cronología del ticket (`ticket_uuid`, `usuario_uuid`, `tipo`, `detalle`, `fecha`). La consume el drawer del admin; es distinta de la bitácora de auditoría.
+- `ticket_adjuntos` — fotos/archivos entrantes de WhatsApp o correo (`uuid`, `ticket_uuid`, `url`, `tipo`, `created_at`).
+- `contactos` — contactos derivados de los tickets para vinculación de clientes (`cliente_uuid`, `nombre`, `teléfono`, `correo`).
+- `tickets` — solicitudes entrantes. Campos obligatorios: `codigo` (HMAC público, `TK-<iniciales><5 chars>`), `asunto` (problema), `descripcion` (detalles originales), `ubicacion` (dirección completa), `nombre_solicitante` / `empresa_solicitante`, `canal` (**solo** `whatsapp` | `correo`) con `contacto_origen` (n.º de contacto), `created_at`. `tecnico_uuid` es obligatorio en cuanto se asigna (**FK** a `tecnicos.uuid`), `cliente_uuid` lo vincula el admin a mano, y `reporte_id` (**UNIQUE**, FK a `reportes.uuid`) apunta al reporte generado desde el ticket. También guarda `categoria_id` (FK), contacto en sitio, `solucion`, `motivo_cancelacion`, `fecha_primera_respuesta` y la conformidad (`cliente_conforme`, `aprobado_por`, `fecha_conformidad`, `motivo_no_conforme`). `mensaje_externo_id` sigue siendo **UNIQUE**.
 - `whatsapp_conversaciones` — conversación pendiente del canal WhatsApp (`numero` PK, `mensaje_origen` UNIQUE, `intentos`). Se borra al crear el ticket.
 - `whatsapp_mensajes` — idempotencia del webhook (`mensaje_origen` PK, `numero`, `created_at`). Se purga a los `WHATSAPP_MENSAJES_DIAS`.
 - `incoming_events` — idempotencia técnica de webhooks (`origen` + `evento_externo_id` UNIQUE, `estado`, `payload`, `intentos`, `error`). Se purga a los 30 días.
@@ -1049,6 +1066,18 @@ mysql -u root -p nicksystemlocal -e "<CREATE TABLE de ticket_avisos copied from 
 ```bash
 mysql -u root -p nicksystemlocal -e "<SQL del cambio>"
 ```
+
+Para el cambio de tickets v4 hay un script en `database/migrations/002_tickets_v4.sql`.
+Migra `manual`/`web` a `whatsapp`/`correo` antes de reducir el ENUM, rellena
+`ubicacion` en las filas históricas y crea `ticket_eventos`, `ticket_adjuntos` y
+`contactos`:
+
+```bash
+mysql -u root -p nicksystemlocal < database/migrations/002_tickets_v4.sql
+```
+
+No es idempotente: ejecutarlo una sola vez. Desplegar el backend nuevo en la misma
+ventana, porque el código anterior todavía crea tickets con `canal = 'manual'`.
 
 Al aplicar un cambio, conviene comprobar que no quedaron filas a medias:
 

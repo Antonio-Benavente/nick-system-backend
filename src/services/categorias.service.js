@@ -15,6 +15,17 @@ export const categoriaActiva = async (client, nombre) => {
   return cat.length > 0;
 };
 
+export const categoriaActivaPorId = async (id, client = pool) => {
+  if (!Number.isInteger(id) || id <= 0) return null;
+
+  const [cat] = await client.query(
+    "SELECT id, nombre FROM categorias WHERE id = ? AND estado = 'activo'",
+    [id]
+  );
+
+  return cat[0] || null;
+};
+
 export const obtenerOCrearCategoria = async (client, nombre) => {
   const limpio = normalizar(nombre);
 
@@ -115,6 +126,7 @@ export const restaurarCategoria = async (id) => {
 
 export default {
   categoriaActiva,
+  categoriaActivaPorId,
   obtenerOCrearCategoria,
   listarCategorias,
   crearCategoria,

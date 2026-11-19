@@ -1,14 +1,18 @@
 import {
+  actualizarDatosTicket,
   actualizarModalidad,
   aplicarTransicion,
   buscarClienteActivoPorUuid,
   buscarTecnicoActivoPorUuid,
   crearTicket,
   desvincularCliente,
+  listarAdjuntos,
+  listarEventos,
   listarTickets,
   obtenerTicketEstado,
   obtenerTicketParaAsignacion,
   obtenerTicketPorUuid,
+  registrarEvento,
   vincularCliente
 } from '../services/ticketService.js';
 import { leerPaginacion, cabeceraPaginacion } from '../services/paginacion.service.js';
@@ -20,10 +24,13 @@ import {
 } from '../services/avisos.service.js';
 import { abortar } from '../middlewares/error.middleware.js';
 import { config } from '../config/env.js';
+import { categoriaActivaPorId } from '../services/categorias.service.js';
 import { esquemaNuevoTicket, validarConZod } from '../validators/schemas.js';
 import {
   validarAsignacion,
   validarAviso,
+  validarCancelacion,
+  validarDatosTicket,
   validarFiltros,
   validarModalidad,
   validarNuevoTicket,
@@ -59,7 +66,12 @@ export const crearAdmin = async (req, res) => {
   });
 
   const datos = validarNuevoTicket(req.body);
-  const ticket = await crearTicket({ ...datos, canal: 'manual' });
+
+  if (datos.categoriaId && !(await categoriaActivaPorId(datos.categoriaId))) {
+    throw abortar(404, 'Categoría no encontrada o inactiva');
+  }
+
+  const ticket = await crearTicket(datos);
 
   bitacora('tickets', `Ticket ${ticket.codigo} creado manualmente por ${req.user?.email || 'admin'}`);
 
@@ -169,12 +181,78 @@ export const listarAvisosTicketAdmin = async (req, res) => {
 };
 
 export const cancelarAdmin = async (req, res) => {
+  const motivoCancelacion = validarCancelacion(req.body);
+
   await responderTransicion(
     res,
-    await aplicarTransicion('cancelar', req.params.uuid),
+    await aplicarTransicion('cancelar', req.params.uuid, {
+      motivoCancelacion,
+      detalle: motivoCancelacion,
+      usuarioUuid: req.user?.uuid || null
+    }),
     req.params.uuid,
     { accion: 'cancelado', actor: req.user?.email || 'admin' }
   );
+};
+
+export const esperarClienteAdmin = async (req, res) => {
+  await responderTransicion(
+    res,
+    await aplicarTransicion('esperar_cliente', req.params.uuid, {
+      detalle: 'El ticket queda a la espera de respuesta del cliente',
+      usuarioUuid: req.user?.uuid || null
+    }),
+    req.params.uuid,
+    { accion: 'esperando_cliente', actor: req.user?.email || 'admin' }
+  );
+};
+
+export const reanudarAdmin = async (req, res) => {
+  await responderTransicion(
+    res,
+    await aplicarTransicion('reanudar', req.params.uuid, {
+      detalle: 'El ticket se reanuda tras la respuesta del cliente',
+      usuarioUuid: req.user?.uuid || null
+    }),
+    req.params.uuid,
+    { accion: 'en servicio', actor: req.user?.email || 'admin' }
+  );
+};
+
+export const actualizarDatosAdmin = async (req, res) => {
+  const ticket = await obtenerTicketPorUuid(req.params.uuid);
+
+  if (!ticket) throw abortar(404, 'Ticket no encontrado');
+
+  const datos = validarDatosTicket(req.body);
+
+  if (datos.categoriaId && !(await categoriaActivaPorId(datos.categoriaId))) {
+    throw abortar(404, 'Categoría no encontrada o inactiva');
+  }
+
+  const actualizado = await actualizarDatosTicket(req.params.uuid, datos);
+
+  if (!actualizado) throw abortar(409, 'No se pudo actualizar el ticket');
+
+  await registrarEvento(req.params.uuid, 'datos_actualizados', 'Datos del ticket editados', req.user?.uuid || null);
+
+  res.json(await obtenerTicketPorUuid(req.params.uuid));
+};
+
+export const eventosAdmin = async (req, res) => {
+  const ticket = await obtenerTicketPorUuid(req.params.uuid);
+
+  if (!ticket) throw abortar(404, 'Ticket no encontrado');
+
+  res.json(await listarEventos(req.params.uuid));
+};
+
+export const adjuntosAdmin = async (req, res) => {
+  const ticket = await obtenerTicketPorUuid(req.params.uuid);
+
+  if (!ticket) throw abortar(404, 'Ticket no encontrado');
+
+  res.json(await listarAdjuntos(req.params.uuid));
 };
 
 export const vincularClienteAdmin = async (req, res) => {
@@ -184,7 +262,7 @@ export const vincularClienteAdmin = async (req, res) => {
 
   if (!ticket) throw abortar(404, 'Ticket no encontrado');
 
-  if (!['pendiente', 'asignado', 'en_servicio'].includes(ticket.estado)) {
+  if (!['pendiente', 'asignado', 'en_servicio', 'esperando_cliente'].includes(ticket.estado)) {
     throw abortar(409, 'No se puede vincular un ticket cerrado o cancelado');
   }
 

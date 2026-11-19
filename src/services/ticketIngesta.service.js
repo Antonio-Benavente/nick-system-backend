@@ -123,6 +123,7 @@ const avisarInterno = async (ticket, datos, canal, canalLog) => {
   const notificacion = await emailService.enviarNotificacionTicketInterna({
     ...datos,
     canal,
+    ubicacion: ticket.ubicacion,
     codigo: ticket.codigo,
     url: urlSeguimiento(ticket.uuid),
     fecha: new Date()

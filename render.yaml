@@ -56,7 +56,7 @@ services:
       - key: FF_ZOD_VALIDATION
         value: observe
       - key: FF_IDEMPOTENCY
-        value: "off"
+        value: "enforce"
       - key: FF_PUSH
         value: "off"
       - key: EVIDENCIAS_MAX_MB

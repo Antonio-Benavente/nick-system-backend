@@ -1,6 +1,7 @@
 -- NICK SYSTEM - SCHEMA MYSQL
--- Versión 3.2 | MySQL 8.0+ / MariaDB 10.6+
--- Solo para instalaciones NUEVAS (para una base existente hay que escribir el ALTER a mano).
+-- Versión 3.4 | MySQL 8.0+ / MariaDB 10.6+
+-- Solo para instalaciones NUEVAS. Para una base existente aplicar
+-- database/migrations/002_tickets_v4.sql (los ALTER no son idempotentes).
 --
 -- Al editar:
 --  1) No repetir con un KEY normal una columna que ya tiene UNIQUE KEY.
@@ -138,12 +139,19 @@ CREATE TABLE IF NOT EXISTS reportes (
   modalidad ENUM('presencial', 'remoto') NOT NULL,
   cliente_conforme ENUM('conforme', 'no_conforme', 'por_confirmar') DEFAULT 'por_confirmar',
   aprobado_por VARCHAR(100) DEFAULT NULL,
+  -- Copia de la conformidad del ticket de origen al generar el reporte.
+  fecha_conformidad DATETIME DEFAULT NULL,
+  motivo_no_conforme VARCHAR(500) DEFAULT NULL,
+  -- Vínculo 1:1 con el ticket. Sin FK aquí: esta tabla se crea antes que
+  -- `tickets`; la integridad referencial la garantiza `tickets.reporte_id`.
+  ticket_id CHAR(36) DEFAULT NULL,
   estado ENUM('activo', 'eliminado') DEFAULT 'activo',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
   PRIMARY KEY (id),
   UNIQUE KEY uuid (uuid),
+  UNIQUE KEY uq_reportes_ticket (ticket_id),
   KEY idx_reportes_tecnico_estado_fecha (tecnico_id, estado, fecha),
   KEY idx_reportes_cliente_estado_fecha (cliente_id, estado, fecha),
   KEY idx_reportes_cliente (cliente_id),
@@ -182,7 +190,12 @@ CREATE TABLE IF NOT EXISTS tickets (
   nombre_solicitante VARCHAR(100) NOT NULL,
   asunto VARCHAR(150) NOT NULL,
   descripcion TEXT NOT NULL,
-  estado ENUM('pendiente', 'asignado', 'en_servicio', 'atendido', 'cancelado') NOT NULL DEFAULT 'pendiente',
+  categoria_id INT DEFAULT NULL,
+  -- Dirección completa del servicio (ej. 'Av. Catalino Miranda 506, Barranco').
+  ubicacion VARCHAR(150) NOT NULL,
+  contacto_servicio_nombre VARCHAR(100) DEFAULT NULL,
+  contacto_servicio_telefono VARCHAR(30) DEFAULT NULL,
+  estado ENUM('pendiente', 'asignado', 'en_servicio', 'esperando_cliente', 'atendido', 'cancelado') NOT NULL DEFAULT 'pendiente',
   cliente_conforme ENUM('conforme', 'no_conforme', 'por_confirmar') NOT NULL DEFAULT 'por_confirmar',
   aprobado_por VARCHAR(100) DEFAULT NULL,
   fecha_conformidad DATETIME DEFAULT NULL,
@@ -191,14 +204,20 @@ CREATE TABLE IF NOT EXISTS tickets (
   cliente_uuid CHAR(36) DEFAULT NULL,
   vinculado_por CHAR(36) DEFAULT NULL,
   vinculado_at DATETIME DEFAULT NULL,
-  canal ENUM('manual', 'web', 'correo', 'whatsapp') NOT NULL DEFAULT 'manual',
+  -- Solo canales entrantes reales. El número de WhatsApp va en contacto_origen.
+  canal ENUM('whatsapp', 'correo') NOT NULL DEFAULT 'correo',
   modalidad ENUM('presencial', 'remoto') NOT NULL DEFAULT 'presencial',
   contacto_origen VARCHAR(150) DEFAULT NULL,
   mensaje_externo_id VARCHAR(255) DEFAULT NULL,
   nota_cierre TEXT DEFAULT NULL,
+  solucion TEXT DEFAULT NULL,
+  motivo_cancelacion VARCHAR(500) DEFAULT NULL,
   fecha_asignacion DATETIME DEFAULT NULL,
   fecha_inicio_servicio DATETIME DEFAULT NULL,
+  fecha_primera_respuesta DATETIME DEFAULT NULL,
   fecha_cierre DATETIME DEFAULT NULL,
+  -- Reporte generado desde este ticket (botón separado, no al cerrar).
+  reporte_id CHAR(36) DEFAULT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
@@ -206,12 +225,18 @@ CREATE TABLE IF NOT EXISTS tickets (
   UNIQUE KEY uuid (uuid),
   UNIQUE KEY codigo (codigo),
   UNIQUE KEY mensaje_externo_id (mensaje_externo_id),
+  UNIQUE KEY uq_tickets_reporte (reporte_id),
   KEY idx_tickets_tecnico_estado (tecnico_uuid, estado),
   KEY idx_tickets_estado_created (estado, created_at),
   KEY idx_tickets_tecnico (tecnico_uuid),
   KEY idx_tickets_cliente (cliente_uuid),
+  KEY idx_tickets_categoria (categoria_id),
   KEY idx_tickets_conformidad (cliente_conforme),
-  CONSTRAINT tickets_ibfk_1 FOREIGN KEY (tecnico_uuid) REFERENCES tecnicos (uuid) ON DELETE SET NULL
+  CONSTRAINT tickets_ibfk_1 FOREIGN KEY (tecnico_uuid) REFERENCES tecnicos (uuid) ON DELETE SET NULL,
+  CONSTRAINT tickets_categoria_fk FOREIGN KEY (categoria_id) REFERENCES categorias (id) ON DELETE SET NULL,
+  CONSTRAINT tickets_reporte_fk FOREIGN KEY (reporte_id) REFERENCES reportes (uuid) ON DELETE SET NULL,
+  CONSTRAINT chk_tickets_motivo_cancelacion
+    CHECK (estado <> 'cancelado' OR (motivo_cancelacion IS NOT NULL AND CHAR_LENGTH(TRIM(motivo_cancelacion)) > 0))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Avisos del admin a un técnico: el técnico ve el ticket y decide si lo acepta.
@@ -231,6 +256,53 @@ CREATE TABLE IF NOT EXISTS ticket_avisos (
   KEY idx_ticket_avisos_ticket (ticket_uuid),
   CONSTRAINT ticket_avisos_ibfk_1 FOREIGN KEY (ticket_uuid) REFERENCES tickets (uuid) ON DELETE CASCADE,
   CONSTRAINT ticket_avisos_ibfk_2 FOREIGN KEY (tecnico_uuid) REFERENCES tecnicos (uuid) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Cronología visible del ticket. A diferencia de la bitácora (auditoría de
+-- login/transiciones), esta tabla se muestra en el drawer del portal admin.
+CREATE TABLE IF NOT EXISTS ticket_eventos (
+  id INT AUTO_INCREMENT,
+  ticket_uuid CHAR(36) NOT NULL,
+  -- users.uuid del admin/técnico; NULL si lo registró el sistema o el cliente.
+  usuario_uuid CHAR(36) DEFAULT NULL,
+  tipo VARCHAR(50) NOT NULL,
+  detalle TEXT DEFAULT NULL,
+  fecha TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+  PRIMARY KEY (id),
+  KEY idx_ticket_eventos_ticket_fecha (ticket_uuid, fecha),
+  KEY idx_ticket_eventos_tipo (tipo),
+  CONSTRAINT ticket_eventos_ibfk_1 FOREIGN KEY (ticket_uuid) REFERENCES tickets (uuid) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Fotos/archivos entrantes de WhatsApp o correo, adjuntos al ticket.
+CREATE TABLE IF NOT EXISTS ticket_adjuntos (
+  id INT AUTO_INCREMENT,
+  uuid CHAR(36) NOT NULL,
+  ticket_uuid CHAR(36) NOT NULL,
+  url VARCHAR(500) NOT NULL,
+  tipo ENUM('imagen', 'video', 'documento') DEFAULT 'imagen',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+  PRIMARY KEY (id),
+  UNIQUE KEY uuid (uuid),
+  KEY idx_ticket_adjuntos_ticket (ticket_uuid),
+  CONSTRAINT ticket_adjuntos_ibfk_1 FOREIGN KEY (ticket_uuid) REFERENCES tickets (uuid) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Contactos derivados de los tickets, para vinculación automática de clientes.
+CREATE TABLE IF NOT EXISTS contactos (
+  id INT AUTO_INCREMENT,
+  cliente_uuid CHAR(36) DEFAULT NULL,
+  nombre VARCHAR(100) NOT NULL,
+  telefono VARCHAR(30) DEFAULT NULL,
+  correo VARCHAR(150) DEFAULT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+  PRIMARY KEY (id),
+  KEY idx_contactos_cliente (cliente_uuid),
+  KEY idx_contactos_telefono (telefono),
+  CONSTRAINT contactos_ibfk_1 FOREIGN KEY (cliente_uuid) REFERENCES clientes (uuid) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Costos internos (en soles): los escribe el técnico asignado, los lee el admin; el cliente no los ve.

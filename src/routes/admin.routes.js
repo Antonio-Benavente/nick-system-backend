@@ -30,14 +30,19 @@ import {
   revocarDispositivo
 } from '../controllers/dispositivos.controller.js';
 import {
+  actualizarDatosAdmin,
+  adjuntosAdmin,
   asignarAdmin,
   avisarTecnicoAdmin,
   cancelarAdmin,
   crearAdmin,
   detalleAdmin,
+  esperarClienteAdmin,
+  eventosAdmin,
   listarAdmin,
   listarAvisosTicketAdmin,
   modalidadAdmin,
+  reanudarAdmin,
   vincularClienteAdmin
 } from '../controllers/tickets.admin.controller.js';
 import { verGastos } from '../controllers/gastos.controller.js';
@@ -128,6 +133,16 @@ router.patch('/tickets/:uuid/asignar', idempotencia, asyncHandler(asignarAdmin))
 router.post('/tickets/:uuid/avisar', idempotencia, asyncHandler(avisarTecnicoAdmin));
 
 router.patch('/tickets/:uuid/cancelar', idempotencia, asyncHandler(cancelarAdmin));
+
+router.patch('/tickets/:uuid/esperar-cliente', idempotencia, asyncHandler(esperarClienteAdmin));
+
+router.patch('/tickets/:uuid/reanudar', idempotencia, asyncHandler(reanudarAdmin));
+
+router.patch('/tickets/:uuid/datos', idempotencia, asyncHandler(actualizarDatosAdmin));
+
+router.get('/tickets/:uuid/eventos', asyncHandler(eventosAdmin));
+
+router.get('/tickets/:uuid/adjuntos', asyncHandler(adjuntosAdmin));
 
 router.patch(
   '/tickets/:uuid/vincular-cliente',

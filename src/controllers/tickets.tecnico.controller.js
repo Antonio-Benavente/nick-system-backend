@@ -59,16 +59,53 @@ export const atenderTecnico = async (req, res) => {
 
   if (!tecnico) throw abortar(404, 'Técnico no encontrado');
 
-  const nota = validarAtencion(req.body);
+  const { nota, solucion } = validarAtencion(req.body);
 
   await responderTransicion(
     res,
     await aplicarTransicion('atender', req.params.uuid, {
       propietarioUuid: tecnico.uuid,
-      nota
+      nota,
+      solucion,
+      detalle: solucion || nota,
+      usuarioUuid: req.user?.uuid || null
     }),
     req.params.uuid,
     { accion: 'atendido', actor: req.user?.email || tecnico.nombre }
+  );
+};
+
+export const esperarClienteTecnico = async (req, res) => {
+  const tecnico = req.user.tecnico;
+
+  if (!tecnico) throw abortar(404, 'Técnico no encontrado');
+
+  await responderTransicion(
+    res,
+    await aplicarTransicion('esperar_cliente', req.params.uuid, {
+      propietarioUuid: tecnico.uuid,
+      detalle: 'El técnico espera respuesta del cliente',
+      usuarioUuid: req.user?.uuid || null
+    }),
+    req.params.uuid,
+    { accion: 'esperando_cliente', actor: req.user?.email || tecnico.nombre }
+  );
+};
+
+export const reanudarTecnico = async (req, res) => {
+  const tecnico = req.user.tecnico;
+
+  if (!tecnico) throw abortar(404, 'Técnico no encontrado');
+
+  await responderTransicion(
+    res,
+    await aplicarTransicion('reanudar', req.params.uuid, {
+      propietarioUuid: tecnico.uuid,
+      detalle: 'El técnico reanuda el servicio',
+      usuarioUuid: req.user?.uuid || null
+    }),
+    req.params.uuid,
+    { accion: 'en servicio', actor: req.user?.email || tecnico.nombre }
   );
 };
 

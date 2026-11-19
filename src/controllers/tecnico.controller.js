@@ -20,6 +20,7 @@ import {
 import { attachEvidencias } from "../services/evidencias.service.js";
 import { obtenerOCrearCategoria } from "../services/categorias.service.js";
 import { leerPaginacion, cabeceraPaginacion, contar } from "../services/paginacion.service.js";
+import { validarUUID } from "../validators/ticketValidators.js";
 
 const CONFORMIDAD_INICIAL = 'por_confirmar';
 
@@ -50,6 +51,35 @@ export const getMiPerfil = async (req, res) => {
   }
 
   res.json(rows[0]);
+};
+
+const consultarReportes = async ({ condiciones, params, paginacion }) => {
+  const [reportes] = await pool.query(
+    `
+    SELECT
+      r.id,
+      r.uuid,
+      r.categoria,
+      r.descripcion,
+      r.fecha,
+      r.modalidad,
+      r.cliente_conforme,
+      r.aprobado_por,
+      r.estado,
+      r.created_at,
+      c.uuid AS cliente_uuid,
+      c.nombre AS cliente_nombre,
+      c.empresa AS cliente_empresa
+    FROM reportes r
+    INNER JOIN clientes c ON c.id = r.cliente_id
+    WHERE ${condiciones.join(" AND ")}
+    ORDER BY r.fecha DESC, r.created_at DESC
+    LIMIT ? OFFSET ?
+  `,
+    [...params, paginacion.limite, paginacion.offset]
+  );
+
+  return attachEvidencias(reportes);
 };
 
 export const getMisReportes = async (req, res) => {
@@ -107,32 +137,33 @@ export const getMisReportes = async (req, res) => {
     cabeceraPaginacion(res, { total, ...paginacion });
   }
 
-  const [reportes] = await pool.query(
-    `
-    SELECT
-      r.id,
-      r.uuid,
-      r.categoria,
-      r.descripcion,
-      r.fecha,
-      r.modalidad,
-      r.cliente_conforme,
-      r.aprobado_por,
-      r.estado,
-      r.created_at,
-      c.uuid AS cliente_uuid,
-      c.nombre AS cliente_nombre,
-      c.empresa AS cliente_empresa
-    FROM reportes r
-    INNER JOIN clientes c ON c.id = r.cliente_id
-    ${donde}
-    ORDER BY r.fecha DESC, r.created_at DESC
-    LIMIT ? OFFSET ?
-  `,
-    [...params, paginacion.limite, paginacion.offset]
-  );
+  const reportes = await consultarReportes({
+    condiciones,
+    params,
+    paginacion
+  });
 
-  res.json(await attachEvidencias(reportes));
+  res.json(reportes);
+};
+
+export const getReporteByUuid = async (req, res) => {
+  const tecnico = req.user.tecnico;
+
+  if (!tecnico) {
+    throw abortar(404, "Técnico no encontrado");
+  }
+
+  const [reporte] = await consultarReportes({
+    condiciones: ["r.uuid = ?", "r.tecnico_id = ?", "r.estado = 'activo'"],
+    params: [req.params.uuid, tecnico.id],
+    paginacion: { activa: false, limite: 1, offset: 0 }
+  });
+
+  if (!reporte) {
+    throw abortar(404, "Reporte no encontrado");
+  }
+
+  res.json(reporte);
 };
 
 export const getMisEstadisticas = async (req, res) => {
@@ -179,18 +210,9 @@ export const getMisEstadisticas = async (req, res) => {
 };
 
 export const createReporte = async (req, res) => {
-  validateReporte(req.body);
-
-  const {
-    cliente_uuid,
-    categoria,
-    descripcion,
-    fecha,
-    modalidad,
-    evidencias
-  } = req.body;
-
-  const listaEvidencias = validarEvidencias(evidencias);
+  const body = { ...req.body };
+  const ticketUuid = body.ticket_uuid ? validarUUID(body.ticket_uuid, 'ticket_uuid') : null;
+  const listaEvidencias = validarEvidencias(body.evidencias);
 
   const resultado = await conTransaccion(async (connection) => {
     const tecnico = req.user.tecnico;
@@ -198,6 +220,56 @@ export const createReporte = async (req, res) => {
     if (!tecnico) {
       throw abortar(404, 'Técnico no encontrado');
     }
+
+    let ticket = null;
+
+    if (ticketUuid) {
+      const [filas] = await connection.query(
+        `SELECT uuid, codigo, estado, tecnico_uuid, cliente_uuid, categoria_id,
+                modalidad, solucion, nota_cierre, cliente_conforme, aprobado_por,
+                fecha_conformidad, motivo_no_conforme, reporte_id
+         FROM tickets WHERE uuid = ? FOR UPDATE`,
+        [ticketUuid]
+      );
+      ticket = filas[0] || null;
+
+      if (!ticket) throw abortar(404, 'Ticket no encontrado');
+      if (ticket.estado !== 'atendido') {
+        throw abortar(409, 'El ticket debe estar atendido antes de crear su reporte');
+      }
+      if (!ticket.cliente_uuid) {
+        throw abortar(409, 'El admin debe vincular el ticket a un cliente antes de crear el reporte');
+      }
+      if (ticket.reporte_id) {
+        throw abortar(409, 'Este ticket ya tiene un reporte asociado');
+      }
+      if (ticket.tecnico_uuid && ticket.tecnico_uuid !== tecnico.uuid) {
+        throw abortar(403, 'El ticket está asignado a otro técnico');
+      }
+
+      // El cliente y la modalidad del ticket son los definitivos; el reporte no
+      // debe describir la queja original sino la solución aplicada.
+      body.cliente_uuid = ticket.cliente_uuid;
+      if (!body.modalidad) body.modalidad = ticket.modalidad;
+      if (!body.descripcion) body.descripcion = ticket.solucion || ticket.nota_cierre || null;
+      if (!body.categoria && ticket.categoria_id) {
+        const [cat] = await connection.query(
+          'SELECT nombre FROM categorias WHERE id = ?',
+          [ticket.categoria_id]
+        );
+        if (cat.length) body.categoria = cat[0].nombre;
+      }
+    }
+
+    validateReporte(body);
+
+    const {
+      cliente_uuid,
+      categoria,
+      descripcion,
+      fecha,
+      modalidad
+    } = body;
 
     const [cliente] = await connection.query(
       "SELECT id FROM clientes WHERE uuid = ? AND estado = 'activo'",
@@ -210,12 +282,15 @@ export const createReporte = async (req, res) => {
 
     const categoriaResuelta = await obtenerOCrearCategoria(connection, categoria);
     const reporteUUID = randomUUID();
+    const conformidad = ticket?.cliente_conforme || CONFORMIDAD_INICIAL;
+    const yaConfirmado = conformidad !== 'por_confirmar';
 
     const [reporteResult] = await connection.query(
       `INSERT INTO reportes
        (uuid, cliente_id, tecnico_id, categoria, descripcion, fecha, modalidad,
-        cliente_conforme, aprobado_por, estado)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 'activo')`,
+        cliente_conforme, aprobado_por, fecha_conformidad, motivo_no_conforme,
+        ticket_id, estado)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'activo')`,
       [
         reporteUUID,
         cliente[0].id,
@@ -224,7 +299,11 @@ export const createReporte = async (req, res) => {
         descripcion,
         fecha,
         modalidad,
-        CONFORMIDAD_INICIAL
+        conformidad,
+        yaConfirmado ? ticket.aprobado_por : null,
+        yaConfirmado ? ticket.fecha_conformidad : null,
+        yaConfirmado ? ticket.motivo_no_conforme : null,
+        ticketUuid
       ]
     );
 
@@ -250,10 +329,24 @@ export const createReporte = async (req, res) => {
       );
     }
 
+    if (ticketUuid) {
+      await connection.query(
+        'UPDATE tickets SET reporte_id = ? WHERE uuid = ?',
+        [reporteUUID, ticketUuid]
+      );
+      await connection.query(
+        `INSERT INTO ticket_eventos (ticket_uuid, usuario_uuid, tipo, detalle)
+         VALUES (?, ?, 'reporte_creado', ?)`,
+        [ticketUuid, req.user?.uuid || null, `Reporte ${reporteUUID} generado desde el ticket`]
+      );
+    }
+
     return {
       uuid: reporteUUID,
+      ticket_uuid: ticketUuid,
       evidencias_agregadas: listaEvidencias.length,
-      categoria_creada: categoriaResuelta.creada === true
+      categoria_creada: categoriaResuelta.creada === true,
+      conformidad_copiada: yaConfirmado
     };
   });
 
