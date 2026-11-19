@@ -123,6 +123,80 @@ const TRANSICIONES = {
   cancelar: { desde: ['pendiente', 'asignado', 'en_servicio', 'esperando_cliente'], hasta: 'cancelado' }
 };
 
+const CLIENTE_INDEPENDIENTE = 'Independiente';
+
+const textoLimitado = (valor, limite) => String(valor ?? '').trim().slice(0, limite) || null;
+
+/**
+ * Los tickets sin cliente vinculado no pueden cerrarse: el reporte exige un
+ * cliente activo. Al atenderlos se crea un cliente con la empresa y el nombre
+ * que el propio ticket ya trae (`empresa_solicitante` / `nombre_solicitante`)
+ * y se vincula automáticamente, sin cambiar el contrato de la API que consume
+ * la app. Si el ticket no trae empresa, se usa "Independiente" como respaldo.
+ */
+const vincularClienteAutomaticoAlAtender = async (ticketUuid, { desde, propietarioUuid }) => {
+  const condiciones = [
+    'uuid = ?',
+    'cliente_uuid IS NULL',
+    `estado IN (${desde.map(() => '?').join(', ')})`
+  ];
+  const parametros = [ticketUuid, ...desde];
+  if (propietarioUuid) {
+    condiciones.push('tecnico_uuid = ?');
+    parametros.push(propietarioUuid);
+  }
+
+  const [tickets] = await pool.query(
+    `SELECT empresa_solicitante, nombre_solicitante, contacto_origen,
+            contacto_servicio_telefono, ubicacion
+       FROM tickets WHERE ${condiciones.join(' AND ')}`,
+    parametros
+  );
+  if (!tickets.length) return;
+
+  const ticket = tickets[0];
+  const nombre = textoLimitado(ticket.nombre_solicitante, 100) || CLIENTE_INDEPENDIENTE;
+  const empresa = textoLimitado(ticket.empresa_solicitante, 100) || CLIENTE_INDEPENDIENTE;
+  const contacto = textoLimitado(ticket.contacto_origen, 150);
+  const esCorreo = Boolean(contacto && contacto.includes('@'));
+  const telefonoContacto = textoLimitado(ticket.contacto_servicio_telefono, 50);
+  const clienteUuid = randomUUID();
+
+  await pool.query(
+    `INSERT INTO clientes
+       (uuid, nombre, empresa, email, telefono, direccion, estado, fecha_registro)
+     VALUES (?, ?, ?, ?, ?, ?, 'activo', CURDATE())`,
+    [
+      clienteUuid,
+      nombre,
+      empresa,
+      esCorreo ? textoLimitado(contacto, 100) : null,
+      esCorreo ? telefonoContacto : textoLimitado(contacto, 50) || telefonoContacto,
+      textoLimitado(ticket.ubicacion, 150)
+    ]
+  );
+
+  // Solo el primer cierre gana el vínculo; si otro proceso lo hizo antes,
+  // descartamos el cliente recién creado para no dejar registros huérfanos.
+  const [vinculado] = await pool.query(
+    `UPDATE tickets SET cliente_uuid = ?, vinculado_por = ?, vinculado_at = NOW()
+      WHERE uuid = ? AND cliente_uuid IS NULL`,
+    [clienteUuid, propietarioUuid || null, ticketUuid]
+  );
+
+  if (vinculado.affectedRows === 0) {
+    await pool.query('DELETE FROM clientes WHERE uuid = ?', [clienteUuid]);
+    return;
+  }
+
+  await registrarEvento(
+    ticketUuid,
+    'cliente_vinculado',
+    `Cliente ${empresa} (${nombre}) vinculado automáticamente al atender el ticket`,
+    propietarioUuid
+  );
+};
+
 const existeMensajeExterno = async (mensajeExternoId) => {
   if (!mensajeExternoId) return false;
 
@@ -206,6 +280,7 @@ export const aplicarTransicion = async (
     asignaciones.push('fecha_primera_respuesta = COALESCE(fecha_primera_respuesta, NOW())');
   }
   if (accion === 'atender') {
+    await vincularClienteAutomaticoAlAtender(uuid, { desde, propietarioUuid });
     asignaciones.push('nota_cierre = ?');
     valores.push(nota);
     if (solucion) {
@@ -269,8 +344,7 @@ export const actualizarDatosTicket = async (uuid, datos = {}) => {
     ['ubicacion', datos.ubicacion],
     ['categoria_id', datos.categoriaId],
     ['contacto_servicio_nombre', datos.contactoServicioNombre],
-    ['contacto_servicio_telefono', datos.contactoServicioTelefono],
-    ['solucion', datos.solucion]
+    ['contacto_servicio_telefono', datos.contactoServicioTelefono]
   ];
 
   for (const [campo, valor] of campos) {
@@ -422,8 +496,16 @@ export const listarTickets = async ({ filtros, paginacion }) => {
     total = Number(filas[0]?.total || 0);
   }
 
+  const columnasConAviso = `${COLUMNAS_TICKET},
+    (SELECT aviso.estado
+       FROM ticket_avisos aviso
+      WHERE aviso.ticket_uuid = tickets.uuid
+        AND aviso.estado IN ('pendiente', 'aceptada')
+      ORDER BY FIELD(aviso.estado, 'aceptada', 'pendiente'), aviso.created_at DESC
+      LIMIT 1) AS aviso_estado`;
+
   const [tickets] = await pool.query(
-    `SELECT ${COLUMNAS_TICKET} FROM tickets ${donde} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+    `SELECT ${columnasConAviso} FROM tickets ${donde} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
     [...parametros, paginacion.limite, paginacion.offset]
   );
 

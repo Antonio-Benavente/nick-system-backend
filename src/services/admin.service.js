@@ -31,7 +31,9 @@ class AdminService {
         (SELECT COUNT(*) FROM tickets WHERE estado = 'atendido') AS tickets_atendidos,
         (SELECT COUNT(*) FROM tickets WHERE estado = 'cancelado') AS tickets_cancelados,
         (SELECT COUNT(*) FROM tickets WHERE cliente_uuid IS NOT NULL) AS tickets_vinculados,
-        (SELECT COUNT(*) FROM tickets WHERE cliente_uuid IS NULL) AS tickets_sin_cliente
+        (SELECT COUNT(*) FROM tickets
+          WHERE cliente_uuid IS NULL
+            AND estado IN ('pendiente', 'asignado', 'en_servicio', 'esperando_cliente')) AS tickets_sin_cliente
     `);
 
     return stats[0];

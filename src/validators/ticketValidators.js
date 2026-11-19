@@ -136,8 +136,7 @@ export const validarDatosTicket = (body = {}) => {
       'El teléfono del contacto en sitio',
       TICKET_LIMITS.telefono,
       false
-    ),
-    solucion: texto(body.solucion, 'La solución', TICKET_LIMITS.solucion, false)
+    )
   };
 
   if (body.categoria_id !== undefined) {

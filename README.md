@@ -451,7 +451,7 @@ Autorización: además de autenticado, el usuario debe ser propietario del repor
 
 `POST /admin/tickets` exige `empresa_solicitante`, `nombre_solicitante`, `asunto`, `descripcion` (el mensaje original) y `ubicacion` (dirección completa). Opcionales: `categoria_id` (debe existir y estar activa), `contacto_servicio_nombre`, `contacto_servicio_telefono`, `canal` (`whatsapp` requiere `contacto_origen`; por defecto `correo`) y `modalidad`. El `codigo` se genera con HMAC; no se envía.
 
-El reporte **no se genera al cerrar el ticket**. Desde la app se crea con `POST /tecnicos/reportes` enviando `ticket_uuid`: el ticket debe estar `atendido`, tener cliente vinculado por el admin y no tener reporte previo. El vínculo queda en `reportes.ticket_id` y `tickets.reporte_id`.
+El reporte **no se genera al cerrar el ticket**. Desde la app se crea con `POST /tecnicos/reportes` enviando `ticket_uuid`: el ticket debe estar `atendido`, tener cliente vinculado y no tener reporte previo. El vínculo queda en `reportes.ticket_id` y `tickets.reporte_id`. Si el ticket no tenía cliente, `atender` crea automáticamente un cliente con la **`empresa_solicitante`** y el **`nombre_solicitante`** del ticket (si falta empresa, usa `Independiente`) y lo vincula (`cliente_uuid`, `vinculado_por`, `vinculado_at`) antes de cerrar, para que el reporte pueda generarse sin volver a abrir el ticket.
 
 Filtros de `GET /admin/tickets`: `estado`, `tecnico_uuid`, `cliente_uuid`, `sin_cliente=true`, `empresa`, `fecha_desde`, `fecha_hasta`, `cierre_desde`, `cierre_hasta`.
 
@@ -534,6 +534,7 @@ pendiente → asignado → en_servicio ⇄ esperando_cliente → atendido
 - **Marcar el inicio del servicio sigue siendo obligatorio**: `atender` solo acepta `en_servicio`. Un `atender` desde `asignado` o `esperando_cliente` responde **409**; hay que `reanudar` primero. El único camino a `atendido` es pasando por `en_servicio`.
 - `cancelado` se puede aplicar desde los cuatro estados no cerrados y **exige `motivo_cancelacion`** (lo valida `validarCancelacion` y lo confirma un `CHECK` en la BD).
 - **La nota de cierre es obligatoria** (`validarAtencion`): sin ella, o solo con espacios, devuelve 400 con *"Describe qué se hizo para poder cerrar el ticket: el cliente lo lee al confirmar el servicio"*. Es lo único que queda escrito del trabajo y lo lee el cliente al confirmar, así que no puede quedar en `NULL`. La interfaz marca el textarea como `required` y deshabilita el botón mientras esté vacío.
+- **Cliente automático al cerrar**: al `atender`, si `cliente_uuid` está vacío, se crea un cliente activo con `empresa = empresa_solicitante` y `nombre = nombre_solicitante` del ticket (más email/teléfono/dirección del propio ticket); solo si no hay empresa se usa `Independiente`. Se vincula antes de sellar `atendido`. No cambia el contrato de la API ni requiere nada de la app de técnicos; el cliente queda visible en el listado del admin y sirve para generar el reporte. Cambiar el vínculo una vez cerrado requiere soporte.
 
 #### Si cambias un estado, toca estos sitios
 
