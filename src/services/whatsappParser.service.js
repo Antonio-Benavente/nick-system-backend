@@ -59,14 +59,22 @@ export const LISTA_CAMPOS = [
   '📄 *Descripción:* Nombre, número de celular y ubicación de la persona a contactar'
 ];
 
+// La bienvenida va en texto plano: el cliente la lee y la copia como ejemplo.
+const LISTA_CAMPOS_BIENVENIDA = [
+  '🏢 Empresa: nombre de tu empresa',
+  '👤 Nombre: tu nombre completo',
+  '📝 Asunto: resumen del problema o solicitud',
+  '📄 Descripción: nombre, número de celular y ubicación de la persona a contactar'
+];
+
 const EJEMPLO_CAMPOS = [
   'Empresa: Acme',
   'Nombre: Juan Pérez',
   'Asunto: Mi computadora no enciende desde esta mañana',
-  'Descripción: llamar a Juanito 999999999 tienda ate'
+  'Descripción: llamar a Juanito, 987654321, Av. Larco 123, Miraflores, Lima'
 ];
 
-const EJEMPLO_COMAS = 'Acme, Juan Pérez, Mi computadora no enciende desde esta mañana, llamar a Juanito 999999999 tienda ate';
+const EJEMPLO_COMAS = 'Acme, Juan Pérez, Mi computadora no enciende desde esta mañana, llamar a Juanito, 987654321, Av. Larco 123, Miraflores, Lima';
 
 const marcarParseado = (datos) => {
   Object.defineProperty(datos, 'parseado', { value: true, enumerable: false });
@@ -202,16 +210,15 @@ export const mensajeBienvenida = () =>
     '',
     'Para crear tu ticket, envíame en un solo mensaje:',
     '',
-    ...LISTA_CAMPOS,
+    ...LISTA_CAMPOS_BIENVENIDA,
     '',
-    'Ejemplo:',
+    'Ejemplo 1:',
     ...EJEMPLO_CAMPOS,
     '',
-    'Ejemplo 2:',
+    'Ejemplo 2 (en una sola línea):',
     EJEMPLO_COMAS,
     '',
-    'Recibirás un código y un enlace para seguir el estado de tu solicitud.',
-    ...lineaUrgencia()
+    '✅ Recibirás un código y un enlace para seguir el estado de tu solicitud.'
   ].join('\n');
 
 export const mensajeTicketCreado = (codigo, url, { asunto, descripcion } = {}) => {

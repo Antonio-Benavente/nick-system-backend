@@ -795,18 +795,18 @@ Para crear tu ticket, envíame en un solo mensaje:
 🏢 Empresa: nombre de tu empresa
 👤 Nombre: tu nombre completo
 📝 Asunto: resumen del problema o solicitud
-📄 Descripción: Nombre, número de celular y ubicación de la persona a contactar
+📄 Descripción: nombre, número de celular y ubicación de la persona a contactar
 
-Ejemplo:
+Ejemplo 1:
 Empresa: Acme
 Nombre: Juan Pérez
 Asunto: Mi computadora no enciende desde esta mañana
-Descripción: llamar a Juanito 999999999 tienda ate
+Descripción: llamar a Juanito, 987654321, Av. Larco 123, Miraflores, Lima
 
-Ejemplo 2:
-Acme, Juan Pérez, Mi computadora no enciende desde esta mañana, llamar a Juanito 999999999 tienda ate
+Ejemplo 2 (en una sola línea):
+Acme, Juan Pérez, Mi computadora no enciende desde esta mañana, llamar a Juanito, 987654321, Av. Larco 123, Miraflores, Lima
 
-Recibirás un código y un enlace para seguir el estado de tu solicitud.
+✅ Recibirás un código y un enlace para seguir el estado de tu solicitud.
 ```
 
 > El texto vive en `whatsappParser.service.js` (`mensajeBienvenida()`), no repartido por el código. El saludo se calcula con la hora de Lima.
