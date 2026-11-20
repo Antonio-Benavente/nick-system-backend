@@ -9,7 +9,8 @@ import { validarAtencion } from '../validators/ticketValidators.js';
 import { responderTransicion } from './tickets.comun.js';
 import {
   aceptarAvisoTecnico,
-  listarAvisosDeTecnico
+  listarAvisosDeTecnico,
+  motivoNoDisponibleTecnico
 } from '../services/avisos.service.js';
 import { bitacora } from '../services/bitacora.service.js';
 
@@ -36,7 +37,25 @@ export const detalleTecnico = async (req, res) => {
 
   const ticket = await obtenerTicketDeTecnico(req.params.uuid, tecnico.uuid);
 
-  if (!ticket) throw abortar(404, 'Ticket no encontrado');
+  if (!ticket) {
+    const motivo = await motivoNoDisponibleTecnico(req.params.uuid, tecnico.uuid);
+
+    if (motivo === 'ya_asignado_otro') {
+      throw abortar(404, 'Otro técnico aceptó este ticket', {
+        message: 'Otro técnico aceptó este ticket. Ya no está disponible para ti.',
+        error: 'ya_asignado_otro'
+      });
+    }
+
+    if (motivo === 'ticket_cerrado') {
+      throw abortar(404, 'Este ticket ya está cerrado', {
+        message: 'Este ticket ya está cerrado y ya no está disponible para ti.',
+        error: 'ticket_cerrado'
+      });
+    }
+
+    throw abortar(404, 'Ticket no encontrado');
+  }
 
   res.json(ticket);
 };

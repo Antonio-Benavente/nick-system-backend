@@ -45,6 +45,30 @@ export const listarAvisosDeTecnico = async (tecnicoUuid) => {
   return filas;
 };
 
+/**
+ * Explica por qué un ticket que antes se vio ya no es accesible para el técnico.
+ * Se usa cuando el detalle devuelve 404 para dar un mensaje concreto en la app.
+ */
+export const motivoNoDisponibleTecnico = async (ticketUuid, tecnicoUuid) => {
+  const [filas] = await pool.query(
+    `SELECT t.estado, t.tecnico_uuid
+       FROM ticket_avisos a
+       INNER JOIN tickets t ON t.uuid = a.ticket_uuid
+      WHERE a.ticket_uuid = ?
+        AND a.tecnico_uuid = ?
+        AND a.estado IN ('aceptada', 'cerrada')
+      ORDER BY a.respondida_at DESC
+      LIMIT 1`,
+    [ticketUuid, tecnicoUuid]
+  );
+
+  const fila = filas[0];
+  if (!fila) return null;
+  if (fila.tecnico_uuid && fila.tecnico_uuid !== tecnicoUuid) return 'ya_asignado_otro';
+  if (fila.estado === 'atendido' || fila.estado === 'cancelado') return 'ticket_cerrado';
+  return null;
+};
+
 export const listarAvisosDeTicket = async (ticketUuid) => {
   const [filas] = await pool.query(
     `SELECT a.id, a.tecnico_uuid, te.nombre AS tecnico_nombre, a.estado,
