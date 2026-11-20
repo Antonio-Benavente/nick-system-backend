@@ -32,7 +32,7 @@ services:
       - key: EXPO_ACCESS_TOKEN
         sync: false
       - key: APP_TECNICOS_VERSION_MINIMA
-        value: 1.0.0
+        value: 1.0.1
       - key: APP_TECNICOS_URL_DESCARGA
         sync: false
       - key: RESEND_API_KEY
